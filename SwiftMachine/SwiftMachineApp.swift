@@ -11,7 +11,17 @@ import SwiftUI
 struct SwiftMachineApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            StateMachineEditorView()
+                .frame(
+                    minWidth: EditorShellMetrics.minimumWindowWidth,
+                    minHeight: EditorShellMetrics.minimumWindowHeight
+                )
         }
+        .defaultSize(
+            width: EditorShellMetrics.defaultWindowWidth,
+            height: EditorShellMetrics.defaultWindowHeight
+        )
+        .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unifiedCompact)
     }
 }
