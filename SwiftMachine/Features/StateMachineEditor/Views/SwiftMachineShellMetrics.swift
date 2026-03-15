@@ -1,5 +1,5 @@
 //
-//  EditorShellMetrics.swift
+//  SwiftMachineShellMetrics.swift
 //  SwiftMachine
 //
 //  Created by Codex on 15/03/2026.
@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-enum EditorShellMetrics {
+enum SwiftMachineShellMetrics {
     static let defaultWindowWidth: CGFloat = 1_200
     static let defaultWindowHeight: CGFloat = 800
     static let minimumWindowWidth: CGFloat = 900

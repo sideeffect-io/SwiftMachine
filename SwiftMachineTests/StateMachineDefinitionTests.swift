@@ -9,6 +9,7 @@ import Foundation
 import Testing
 @testable import SwiftMachine
 
+@MainActor
 struct StateMachineDefinitionTests {
 
     @Test("A well-formed machine validates successfully")
