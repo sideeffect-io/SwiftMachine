@@ -16,6 +16,9 @@ enum SwiftMachineShellMetrics {
     static let sidebarMinimumWidth: CGFloat = 240
     static let sidebarIdealWidth: CGFloat = 280
     static let sidebarMaximumWidth: CGFloat = 340
+    static let inspectorMinimumWidth: CGFloat = 260
+    static let inspectorIdealWidth: CGFloat = 320
+    static let inspectorMaximumWidth: CGFloat = 380
 
     static let panelPadding: CGFloat = 20
     static let panelSpacing: CGFloat = 20

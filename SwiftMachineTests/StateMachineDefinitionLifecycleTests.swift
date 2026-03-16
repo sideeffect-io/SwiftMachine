@@ -50,4 +50,22 @@ struct StateMachineDefinitionLifecycleTests {
 
         #expect(machine == nil)
     }
+
+    @Test("The builder preserves initial-state property default values")
+    func builderPreservesInitialStatePropertyDefaultValues() throws {
+        let machine = try #require(
+            StateMachineDefinition.makeNew(
+                name: "Checkout",
+                initialStateName: "Idle",
+                initialStateProperties: [
+                    PropertyDefinition(name: "amount", type: .double, defaultValue: .double(12.5)),
+                    PropertyDefinition(name: "isMember", type: .boolean, defaultValue: .boolean(false))
+                ]
+            )
+        )
+
+        let properties = try #require(machine.states.first?.properties)
+
+        #expect(properties.map(\.defaultValue) == [.double(12.5), .boolean(false)])
+    }
 }

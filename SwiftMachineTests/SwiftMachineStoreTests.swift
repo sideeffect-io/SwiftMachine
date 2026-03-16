@@ -25,14 +25,17 @@ struct SwiftMachineStoreTests {
             )
         )
 
-        guard case .designing(let stateMachine) = store.state else {
+        guard case .designing(let editor) = store.state else {
             Issue.record("Expected the store to publish the designing phase.")
             return
         }
 
-        #expect(stateMachine.name == "Checkout")
-        #expect(stateMachine.states.count == 1)
-        #expect(stateMachine.states.first?.name == "Idle")
+        let definition = editor.document.definition
+
+        #expect(definition.name == "Checkout")
+        #expect(definition.states.count == 1)
+        #expect(definition.states.first?.name == "Idle")
+        #expect(editor.document.position(for: definition.initialStateID) == StateMachineEditorDocument.initialStateOrigin)
     }
 
     @Test("Sending editor events mutates the designing definition")
@@ -46,20 +49,36 @@ struct SwiftMachineStoreTests {
         )
 
         let store = SwiftMachineStore.make(
-            initialState: .designing(stateMachine: initialMachine)
+            initialState: .designing(editor: .bootstrap(definition: initialMachine))
         )
 
-        store.send(.addNewState)
-        store.send(.addNewEvent)
+        store.send(.addState)
+        store.send(
+            .confirmStateCreation(
+                name: "Loading",
+                properties: [PropertyDefinition(name: "position", type: .integer)]
+            )
+        )
+        store.send(.addEvent)
 
-        guard case .designing(let stateMachine) = store.state else {
+        guard case .designing(let editor) = store.state else {
             Issue.record("Expected the store to stay in the designing phase.")
             return
         }
 
-        #expect(stateMachine.states.count == 2)
-        #expect(stateMachine.states.last?.name == "State 1")
-        #expect(stateMachine.events.count == 1)
-        #expect(stateMachine.events.first?.name == "Event 1")
+        let definition = editor.document.definition
+
+        #expect(definition.states.count == 2)
+        #expect(definition.states.last?.name == "Loading")
+        #expect(definition.states.last?.properties.map(\.name) == ["position"])
+        #expect(definition.events.count == 1)
+        #expect(definition.events.first?.name == "Event 1")
+
+        let expectedPosition = StateMachineEditorDocument.initialStateOrigin.translatingBy(
+            dx: StateMachineEditorDocument.stateOriginOffset.x,
+            dy: StateMachineEditorDocument.stateOriginOffset.y
+        )
+        let createdStateID = try #require(definition.states.last?.id)
+        #expect(editor.document.position(for: createdStateID) == expectedPosition)
     }
 }

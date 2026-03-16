@@ -8,7 +8,7 @@
 enum SwiftMachineState: Sendable, Equatable {
     case empty
     case drafting(name: String)
-    case designing(stateMachine: StateMachineDefinition)
+    case designing(editor: StateMachineEditorSession)
 
     var isDesigning: Bool {
         if case .designing = self {

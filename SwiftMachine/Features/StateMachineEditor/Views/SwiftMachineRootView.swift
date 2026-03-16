@@ -21,8 +21,17 @@ struct SwiftMachineRootView: View {
                             maxWidth: SwiftMachineShellMetrics.sidebarMaximumWidth
                         )
 
-                    SwiftMachineCanvasView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    HSplitView {
+                        SwiftMachineCanvasView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        SwiftMachineInspectorView()
+                            .frame(
+                                minWidth: SwiftMachineShellMetrics.inspectorMinimumWidth,
+                                idealWidth: SwiftMachineShellMetrics.inspectorIdealWidth,
+                                maxWidth: SwiftMachineShellMetrics.inspectorMaximumWidth
+                            )
+                    }
                 }
             } else {
                 SwiftMachineCanvasView()
@@ -47,11 +56,11 @@ struct SwiftMachineRootView: View {
         .environment(
             SwiftMachineStore.make(
                 initialState: .designing(
-                    stateMachine: .makeNew(
+                    editor: .bootstrap(definition: .makeNew(
                         name: "Checkout",
                         initialStateName: "Idle",
                         initialStateProperties: []
-                    )!
+                    )!)
                 )
             )
         )

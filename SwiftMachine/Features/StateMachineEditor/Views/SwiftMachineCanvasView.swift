@@ -11,6 +11,16 @@ struct SwiftMachineCanvasView: View {
     @Environment(SwiftMachineStore.self) private var store
 
     var body: some View {
+        switch store.state {
+        case .designing(let editor):
+            SwiftMachineGraphCanvasView(editor: editor)
+
+        case .empty, .drafting:
+            wizardSurface
+        }
+    }
+
+    private var wizardSurface: some View {
         ZStack {
             LinearGradient(
                 colors: [
@@ -21,7 +31,7 @@ struct SwiftMachineCanvasView: View {
                 endPoint: .bottomTrailing
             )
 
-            CanvasGridBackground()
+            WizardGridBackground()
 
             phaseContent
                 .padding(SwiftMachineShellMetrics.canvasInset)
@@ -48,14 +58,14 @@ struct SwiftMachineCanvasView: View {
         case .drafting(let machineName):
             wizardLayout(
                 title: "Create the Initial State",
-                subtitle: "The editor becomes available only after the initial state has been defined."
+                subtitle: "The graph editor unlocks only after the initial state has been defined."
             ) {
                 InitialStateSetupStepView(machineName: machineName)
                     .id(machineName)
             }
 
-        case .designing(let stateMachine):
-            designingLayout(stateMachine: stateMachine)
+        case .designing:
+            EmptyView()
         }
     }
 
@@ -69,21 +79,6 @@ struct SwiftMachineCanvasView: View {
             Spacer()
             content()
             Spacer()
-        }
-    }
-
-    private func designingLayout(stateMachine: StateMachineDefinition) -> some View {
-        VStack(alignment: .leading, spacing: SwiftMachineShellMetrics.panelSpacing) {
-            canvasHeader(
-                title: stateMachine.name,
-                subtitle: "The canvas reflects the current in-memory state machine definition. Use the toolbox to add more elements."
-            )
-
-            ScrollView {
-                DesigningCanvasContentView(stateMachine: stateMachine)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .scrollIndicators(.visible)
         }
     }
 
@@ -106,7 +101,7 @@ struct SwiftMachineCanvasView: View {
     }
 }
 
-private struct CanvasGridBackground: View {
+private struct WizardGridBackground: View {
     var body: some View {
         Canvas { context, size in
             let minorPath = gridPath(in: size, step: SwiftMachineShellMetrics.gridStep)
@@ -162,11 +157,11 @@ private struct CanvasGridBackground: View {
         .environment(
             SwiftMachineStore.make(
                 initialState: .designing(
-                    stateMachine: .makeNew(
+                    editor: .bootstrap(definition: .makeNew(
                         name: "Checkout",
                         initialStateName: "Idle",
                         initialStateProperties: []
-                    )!
+                    )!)
                 )
             )
         )
@@ -219,7 +214,7 @@ private struct InitialStateSetupStepView: View {
         WizardCard(
             symbol: "circle.hexagongrid",
             title: "Define the Initial State",
-            description: "This step creates the first valid `StateMachineDefinition` and unlocks the editor."
+            description: "This step creates the first valid `StateMachineDefinition` and unlocks the graph editor."
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Machine")
@@ -297,6 +292,12 @@ private struct InitialStateSetupStepView: View {
             return "Property names must be unique within the initial state."
         }
 
+        if let defaultValueValidationMessage = propertyDrafts
+            .compactMap(\.defaultValueValidationMessage)
+            .first {
+            return defaultValueValidationMessage
+        }
+
         return nil
     }
 
@@ -305,13 +306,7 @@ private struct InitialStateSetupStepView: View {
     }
 
     private var propertyDefinitions: [PropertyDefinition] {
-        propertyDrafts.map {
-            PropertyDefinition(
-                name: $0.trimmedName,
-                type: $0.type,
-                isOptional: $0.isOptional
-            )
-        }
+        propertyDrafts.map(\.propertyDefinition)
     }
 
     private func removeProperty(_ id: UUID) {
@@ -329,75 +324,6 @@ private struct InitialStateSetupStepView: View {
                 properties: propertyDefinitions
             )
         )
-    }
-}
-
-private struct DesigningCanvasContentView: View {
-    let stateMachine: StateMachineDefinition
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: SwiftMachineShellMetrics.panelSpacing) {
-            MachineSummaryView(stateMachine: stateMachine)
-
-            DefinitionSection(title: "States", description: "The initial state is marked explicitly and its properties are rendered inline.") {
-                ForEach(stateMachine.states) { state in
-                    DefinitionCard(symbol: "circle.hexagongrid", title: state.name) {
-                        if state.id == stateMachine.initialStateID {
-                            Badge(text: "Initial State", tint: .green)
-                        }
-
-                        if state.properties.isEmpty {
-                            Text("No properties")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            PropertyListView(properties: state.properties)
-                        }
-                    }
-                }
-            }
-
-            DefinitionSection(title: "Events", description: "Events can be created from the toolbox and will appear here immediately.") {
-                if stateMachine.events.isEmpty {
-                    EmptyDefinitionCard(
-                        title: "No Events Yet",
-                        systemImage: "bolt.horizontal.circle",
-                        message: "Use the toolbox to create the first event."
-                    )
-                } else {
-                    ForEach(stateMachine.events) { event in
-                        DefinitionCard(symbol: "bolt.horizontal.circle", title: event.name) {
-                            if event.properties.isEmpty {
-                                Text("No payload properties")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                PropertyListView(properties: event.properties)
-                            }
-                        }
-                    }
-                }
-            }
-
-            DefinitionSection(title: "Transitions", description: "Transition rendering is wired into the canvas now, but creation is held back until selection semantics are defined.") {
-                if stateMachine.transitions.isEmpty {
-                    EmptyDefinitionCard(
-                        title: "No Transitions Yet",
-                        systemImage: "arrow.triangle.branch",
-                        message: "Transition creation stays disabled until the editor can capture source, event, and target explicitly."
-                    )
-                } else {
-                    ForEach(stateMachine.transitions) { transition in
-                        DefinitionCard(symbol: "arrow.triangle.branch", title: transition.id) {
-                            Text("\(transition.sourceStateID) --\(transition.eventID)--> \(transition.targetStateID)")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.bottom, SwiftMachineShellMetrics.canvasInset)
     }
 }
 
@@ -437,9 +363,26 @@ private struct InitialStatePropertyDraft: Identifiable {
     var name = ""
     var type: PropertyType = .string
     var isOptional = false
+    var defaultValue = PropertyDefaultValueDraft()
 
     var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var propertyDefinition: PropertyDefinition {
+        PropertyDefinition(
+            name: trimmedName,
+            type: type,
+            isOptional: isOptional,
+            defaultValue: defaultValue.literalValue(for: type)
+        )
+    }
+
+    var defaultValueValidationMessage: String? {
+        defaultValue.validationMessage(
+            for: type,
+            propertyName: trimmedName
+        )
     }
 }
 
@@ -472,6 +415,11 @@ private struct PropertyDraftRowView: View {
                 .buttonStyle(.plain)
                 .help("Remove property")
             }
+
+            PropertyDefaultValueEditor(
+                type: propertyDraft.type,
+                draft: $propertyDraft.defaultValue
+            )
         }
         .padding(14)
         .background(
@@ -482,182 +430,5 @@ private struct PropertyDraftRowView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
         }
-    }
-}
-
-private struct MachineSummaryView: View {
-    let stateMachine: StateMachineDefinition
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Badge(text: "\(stateMachine.states.count) state\(stateMachine.states.count == 1 ? "" : "s")", tint: .blue)
-            Badge(text: "\(stateMachine.events.count) event\(stateMachine.events.count == 1 ? "" : "s")", tint: .orange)
-            Badge(text: "\(stateMachine.transitions.count) transition\(stateMachine.transitions.count == 1 ? "" : "s")", tint: .pink)
-            Badge(text: stateMachine.isValid ? "Valid definition" : "Invalid definition", tint: stateMachine.isValid ? .green : .red)
-        }
-    }
-}
-
-private struct DefinitionSection<Content: View>: View {
-    let title: String
-    let description: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                content
-            }
-        }
-    }
-}
-
-private struct DefinitionCard<Content: View>: View {
-    let symbol: String
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: symbol)
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 10) {
-                content
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-    }
-}
-
-private struct EmptyDefinitionCard: View {
-    let title: String
-    let systemImage: String
-    let message: String
-
-    var body: some View {
-        ContentUnavailableView(
-            title,
-            systemImage: systemImage,
-            description: Text(message)
-        )
-        .frame(maxWidth: .infinity)
-        .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-    }
-}
-
-private struct PropertyListView: View {
-    let properties: [PropertyDefinition]
-
-    var body: some View {
-        TagFlowLayout(spacing: 8) {
-            ForEach(properties) { property in
-                Badge(
-                    text: property.label,
-                    tint: property.isOptional ? .purple : .blue
-                )
-            }
-        }
-    }
-}
-
-private struct Badge: View {
-    let text: String
-    let tint: Color
-
-    var body: some View {
-        Text(text)
-            .font(.footnote.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(tint.opacity(0.14), in: Capsule())
-            .foregroundStyle(tint)
-    }
-}
-
-private struct TagFlowLayout: Layout {
-    let spacing: CGFloat
-
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let fittingWidth = proposal.width ?? 480
-        var currentRowWidth: CGFloat = 0
-        var currentRowHeight: CGFloat = 0
-        var totalHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-
-            if currentRowWidth + size.width > fittingWidth, currentRowWidth > 0 {
-                totalHeight += currentRowHeight + spacing
-                currentRowWidth = 0
-                currentRowHeight = 0
-            }
-
-            currentRowWidth += size.width + spacing
-            currentRowHeight = max(currentRowHeight, size.height)
-        }
-
-        totalHeight += currentRowHeight
-
-        return CGSize(width: fittingWidth, height: totalHeight)
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        var origin = bounds.origin
-        var currentRowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-
-            if origin.x + size.width > bounds.maxX, origin.x > bounds.minX {
-                origin.x = bounds.minX
-                origin.y += currentRowHeight + spacing
-                currentRowHeight = 0
-            }
-
-            subview.place(
-                at: origin,
-                proposal: ProposedViewSize(width: size.width, height: size.height)
-            )
-
-            origin.x += size.width + spacing
-            currentRowHeight = max(currentRowHeight, size.height)
-        }
-    }
-}
-
-private extension PropertyDefinition {
-    var label: String {
-        "\(name): \(type.rawValue)\(isOptional ? "?" : "")"
     }
 }
