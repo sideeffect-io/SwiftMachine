@@ -100,7 +100,7 @@ struct SwiftMachineGraphCanvasView: View {
                 Text(definition.name)
                     .font(.title3.weight(.semibold))
 
-                Text("Drag states to position them. Drag from a node handle to create a transition. Pinch to zoom the canvas.")
+                Text("Drag states to position them, or drag transition cards to rearrange the arrow routing. Drag from a node handle to create a transition. Pinch to zoom the canvas.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -136,13 +136,25 @@ struct SwiftMachineGraphCanvasView: View {
                 )
 
             ForEach(definition.transitions) { transition in
+                let label = transition.graphLabel(eventName: eventName(for: transition.eventID))
+                let transitionPosition = transitionPosition(for: transition)
+
                 TransitionEdgeView(
                     transition: transition,
                     editor: editor,
-                    eventName: eventName(for: transition.eventID),
+                    position: transitionPosition,
                     isSelected: selectedTransitionID == transition.id
                 )
                 .zIndex(0)
+                
+                TransitionCardView(
+                    transition: transition,
+                    label: label,
+                    position: transitionPosition,
+                    isSelected: selectedTransitionID == transition.id,
+                    canvasScale: canvasScale
+                )
+                .zIndex(1)
             }
 
             ForEach(definition.states) { state in
@@ -155,7 +167,7 @@ struct SwiftMachineGraphCanvasView: View {
                     isConnectionSnapTarget: currentConnectionSnapTarget?.stateID == state.id,
                     canvasScale: canvasScale
                 )
-                .zIndex(1)
+                .zIndex(2)
             }
 
             if let connectionDraft = editor.connectionDraft {
@@ -164,7 +176,7 @@ struct SwiftMachineGraphCanvasView: View {
                     currentLocation: connectionDraft.currentLocation.cgPoint,
                     isSnapped: currentConnectionSnapTarget != nil
                 )
-                .zIndex(2)
+                .zIndex(3)
             }
 
             if let prompt = editor.transitionPrompt {
@@ -176,7 +188,7 @@ struct SwiftMachineGraphCanvasView: View {
                 )
                 .id(promptIdentity(prompt))
                 .position(promptPosition(for: prompt.anchor))
-                .zIndex(3)
+                .zIndex(4)
             }
         }
     }
@@ -204,6 +216,24 @@ struct SwiftMachineGraphCanvasView: View {
 
     private func eventName(for eventID: String) -> String {
         definition.events.first(where: { $0.id == eventID })?.name ?? eventID
+    }
+
+    private func transitionPosition(for transition: TransitionDefinition) -> StateMachineEditorPoint {
+        if let storedPosition = editor.document.transitionPosition(for: transition.id) {
+            return storedPosition
+        }
+
+        let sourceFrame = editor.document.frame(for: transition.sourceStateID).cgRect
+        let targetFrame = editor.document.frame(for: transition.targetStateID).cgRect
+        let fallbackGeometry = TransitionPathGeometry(
+            sourceFrame: sourceFrame,
+            targetFrame: targetFrame
+        )
+
+        return StateMachineEditorPoint(
+            x: fallbackGeometry.labelPosition.x,
+            y: fallbackGeometry.labelPosition.y
+        )
     }
 
     private func promptIdentity(_ prompt: StateMachineTransitionPrompt) -> String {
@@ -318,8 +348,8 @@ private struct StateNodeView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(
-                    isSelected ? Color.accentColor : Color.primary.opacity(0.18),
-                    lineWidth: isSelected ? 2.5 : 1.5
+                    isSelected ? Color.orange : Color.orange.opacity(0.88),
+                    lineWidth: isSelected ? 4.5 : 3.25
                 )
         }
         .overlay(alignment: .leading) {
@@ -479,6 +509,70 @@ private struct StateNodePropertyStripView: View {
     }
 }
 
+private struct TransitionCardView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let transition: TransitionDefinition
+    let label: TransitionGraphLabel
+    let position: StateMachineEditorPoint
+    let isSelected: Bool
+    let canvasScale: CGFloat
+
+    @State private var dragOrigin: StateMachineEditorPoint?
+
+    var body: some View {
+        TransitionGraphLabelView(
+            label: label,
+            isSelected: isSelected
+        )
+        .position(position.cgPoint)
+        .help("Drag to rearrange the transition path.")
+        .onTapGesture {
+            store.send(.selectTransition(id: transition.id))
+        }
+        .simultaneousGesture(cardDragGesture)
+    }
+
+    private var cardDragGesture: some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                if dragOrigin == nil {
+                    dragOrigin = position
+                }
+
+                let basePosition = dragOrigin ?? position
+                let translation = normalizedTranslation(for: value.translation)
+                let nextPosition = basePosition.translatingBy(
+                    dx: Double(translation.width),
+                    dy: Double(translation.height)
+                )
+
+                store.send(.moveTransition(id: transition.id, to: clamp(nextPosition)))
+            }
+            .onEnded { _ in
+                dragOrigin = nil
+            }
+    }
+
+    private func clamp(_ point: StateMachineEditorPoint) -> StateMachineEditorPoint {
+        let halfWidth = GraphCanvasMetrics.transitionCardWidth / 2
+        let halfHeight = GraphCanvasMetrics.transitionCardHeight / 2
+
+        return StateMachineEditorPoint(
+            x: min(max(point.x, Double(halfWidth)), Double(GraphCanvasMetrics.workspaceWidth - halfWidth)),
+            y: min(max(point.y, Double(halfHeight)), Double(GraphCanvasMetrics.workspaceHeight - halfHeight))
+        )
+    }
+
+    private func normalizedTranslation(for translation: CGSize) -> CGSize {
+        let safeScale = max(canvasScale, .leastNonzeroMagnitude)
+        return CGSize(
+            width: translation.width / safeScale,
+            height: translation.height / safeScale
+        )
+    }
+}
+
 private struct InitialStateEntryArrow: View {
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -520,7 +614,7 @@ private struct TransitionEdgeView: View {
 
     let transition: TransitionDefinition
     let editor: StateMachineEditorSession
-    let eventName: String
+    let position: StateMachineEditorPoint
     let isSelected: Bool
 
     var body: some View {
@@ -528,9 +622,9 @@ private struct TransitionEdgeView: View {
         let targetFrame = editor.document.frame(for: transition.targetStateID).cgRect
         let geometry = TransitionPathGeometry(
             sourceFrame: sourceFrame,
+            transitionAnchor: position.cgPoint,
             targetFrame: targetFrame
         )
-        let label = transition.graphLabel(eventName: eventName)
 
         ZStack(alignment: .topLeading) {
             geometry.hitPath
@@ -551,18 +645,6 @@ private struct TransitionEdgeView: View {
 
             geometry.arrowPath
                 .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.45))
-
-            Button {
-                store.send(.selectTransition(id: transition.id))
-            } label: {
-                TransitionGraphLabelView(
-                    label: label,
-                    isSelected: isSelected
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Select transition")
-            .position(geometry.labelPosition)
         }
     }
 }
@@ -641,7 +723,7 @@ private struct TransitionGraphLabelView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(maxWidth: 240, alignment: .leading)
+        .frame(width: GraphCanvasMetrics.transitionCardWidth, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -855,6 +937,14 @@ struct TransitionPathGeometry {
     let arrowTip: CGPoint
     let labelPosition: CGPoint
 
+    init(sourceFrame: CGRect, transitionAnchor: CGPoint, targetFrame: CGRect) {
+        self = Self.makeRoutedPath(
+            sourceFrame: sourceFrame,
+            transitionAnchor: transitionAnchor,
+            targetFrame: targetFrame
+        )
+    }
+
     init(sourceFrame: CGRect, targetFrame: CGRect) {
         if sourceFrame == targetFrame {
             self = Self.makeSelfLoop(frame: sourceFrame)
@@ -875,6 +965,111 @@ struct TransitionPathGeometry {
         self.arrowPath = arrowPath
         self.arrowTip = arrowTip
         self.labelPosition = labelPosition
+    }
+
+    private static func makeRoutedPath(
+        sourceFrame: CGRect,
+        transitionAnchor: CGPoint,
+        targetFrame: CGRect
+    ) -> TransitionPathGeometry {
+        if sourceFrame == targetFrame {
+            return makeRoutedSelfLoop(
+                frame: sourceFrame,
+                transitionAnchor: transitionAnchor
+            )
+        }
+
+        let start = point(on: sourceFrame, toward: transitionAnchor)
+        let end = point(on: targetFrame, toward: transitionAnchor)
+        let firstControls = curveControls(start: start, end: transitionAnchor)
+        let secondControls = curveControls(start: transitionAnchor, end: end)
+
+        let path = Path { path in
+            path.move(to: start)
+            path.addCurve(
+                to: transitionAnchor,
+                control1: firstControls.control1,
+                control2: firstControls.control2
+            )
+            path.move(to: transitionAnchor)
+            path.addCurve(
+                to: end,
+                control1: secondControls.control1,
+                control2: secondControls.control2
+            )
+        }
+
+        let hitPath = path.strokedPath(
+            StrokeStyle(lineWidth: GraphCanvasMetrics.edgeHitWidth, lineCap: .round, lineJoin: .round)
+        )
+        let arrowAngle = atan2(
+            end.y - secondControls.control2.y,
+            end.x - secondControls.control2.x
+        )
+        let arrowPath = makeArrowPath(tip: end, angle: arrowAngle)
+
+        return TransitionPathGeometry(
+            path: path,
+            hitPath: hitPath,
+            arrowPath: arrowPath,
+            arrowTip: end,
+            labelPosition: transitionAnchor
+        )
+    }
+
+    private static func makeRoutedSelfLoop(
+        frame: CGRect,
+        transitionAnchor: CGPoint
+    ) -> TransitionPathGeometry {
+        let attachmentPoints = selfLoopAttachmentPoints(
+            on: frame,
+            toward: transitionAnchor
+        )
+        let firstControls = curveControls(
+            start: attachmentPoints.start,
+            end: transitionAnchor
+        )
+        let secondControls = curveControls(
+            start: transitionAnchor,
+            end: attachmentPoints.end
+        )
+
+        let path = Path { path in
+            path.move(to: attachmentPoints.start)
+            path.addCurve(
+                to: transitionAnchor,
+                control1: firstControls.control1,
+                control2: firstControls.control2
+            )
+            path.addCurve(
+                to: attachmentPoints.end,
+                control1: secondControls.control1,
+                control2: secondControls.control2
+            )
+        }
+
+        let hitPath = path.strokedPath(
+            StrokeStyle(lineWidth: GraphCanvasMetrics.edgeHitWidth, lineCap: .round, lineJoin: .round)
+        )
+        let arrowPlacement = visibleArrowPlacement(
+            start: transitionAnchor,
+            control1: secondControls.control1,
+            control2: secondControls.control2,
+            end: attachmentPoints.end,
+            avoiding: frame
+        )
+        let arrowPath = makeArrowPath(
+            tip: arrowPlacement.tip,
+            angle: arrowPlacement.angle
+        )
+
+        return TransitionPathGeometry(
+            path: path,
+            hitPath: hitPath,
+            arrowPath: arrowPath,
+            arrowTip: arrowPlacement.tip,
+            labelPosition: transitionAnchor
+        )
     }
 
     private static func makeStandardPath(
@@ -963,6 +1158,98 @@ struct TransitionPathGeometry {
             arrowPath: arrowPath,
             arrowTip: arrowPlacement.tip,
             labelPosition: labelPosition
+        )
+    }
+
+    private static func selfLoopAttachmentPoints(
+        on frame: CGRect,
+        toward anchor: CGPoint
+    ) -> (start: CGPoint, end: CGPoint) {
+        let horizontalInset = min(max(frame.width * 0.18, 28), 40)
+        let verticalInset = min(max(frame.height * 0.22, 24), 34)
+        let edgeInset: CGFloat = 10
+
+        switch selfLoopSide(for: frame, toward: anchor) {
+        case .top:
+            return (
+                start: CGPoint(x: frame.midX + horizontalInset, y: frame.minY + edgeInset),
+                end: CGPoint(x: frame.midX - horizontalInset, y: frame.minY + edgeInset)
+            )
+        case .right:
+            return (
+                start: CGPoint(x: frame.maxX - edgeInset, y: frame.midY - verticalInset),
+                end: CGPoint(x: frame.maxX - edgeInset, y: frame.midY + verticalInset)
+            )
+        case .bottom:
+            return (
+                start: CGPoint(x: frame.midX - horizontalInset, y: frame.maxY - edgeInset),
+                end: CGPoint(x: frame.midX + horizontalInset, y: frame.maxY - edgeInset)
+            )
+        case .left:
+            return (
+                start: CGPoint(x: frame.minX + edgeInset, y: frame.midY + verticalInset),
+                end: CGPoint(x: frame.minX + edgeInset, y: frame.midY - verticalInset)
+            )
+        }
+    }
+
+    private static func selfLoopSide(
+        for frame: CGRect,
+        toward anchor: CGPoint
+    ) -> SelfLoopSide {
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let normalizedX = (anchor.x - center.x) / max(frame.width / 2, CGFloat.leastNonzeroMagnitude)
+        let normalizedY = (anchor.y - center.y) / max(frame.height / 2, CGFloat.leastNonzeroMagnitude)
+
+        if abs(normalizedY) >= abs(normalizedX) {
+            return normalizedY <= 0 ? .top : .bottom
+        }
+
+        return normalizedX >= 0 ? .right : .left
+    }
+
+    private static func point(on frame: CGRect, toward target: CGPoint) -> CGPoint {
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let deltaX = target.x - center.x
+        let deltaY = target.y - center.y
+
+        guard deltaX != 0 || deltaY != 0 else {
+            return center
+        }
+
+        let halfWidth = frame.width / 2
+        let halfHeight = frame.height / 2
+        let scale = max(abs(deltaX) / halfWidth, abs(deltaY) / halfHeight)
+
+        return CGPoint(
+            x: center.x + (deltaX / scale),
+            y: center.y + (deltaY / scale)
+        )
+    }
+
+    private static func curveControls(
+        start: CGPoint,
+        end: CGPoint
+    ) -> (control1: CGPoint, control2: CGPoint) {
+        let deltaX = end.x - start.x
+        let deltaY = end.y - start.y
+
+        if abs(deltaX) >= abs(deltaY) {
+            let horizontalOffset = max(54, abs(deltaX) * 0.35)
+            let signedOffset = deltaX >= 0 ? horizontalOffset : -horizontalOffset
+
+            return (
+                control1: CGPoint(x: start.x + signedOffset, y: start.y),
+                control2: CGPoint(x: end.x - signedOffset, y: end.y)
+            )
+        }
+
+        let verticalOffset = max(54, abs(deltaY) * 0.35)
+        let signedOffset = deltaY >= 0 ? verticalOffset : -verticalOffset
+
+        return (
+            control1: CGPoint(x: start.x, y: start.y + signedOffset),
+            control2: CGPoint(x: end.x, y: end.y - signedOffset)
         )
     }
 
@@ -1064,6 +1351,13 @@ struct TransitionPathGeometry {
     }
 }
 
+private enum SelfLoopSide {
+    case top
+    case right
+    case bottom
+    case left
+}
+
 private enum GraphCanvasMetrics {
     static let workspaceWidth: CGFloat = 2_400
     static let workspaceHeight: CGFloat = 1_600
@@ -1072,6 +1366,8 @@ private enum GraphCanvasMetrics {
     static let maximumZoomScale: CGFloat = 2.5
     static let nodeWidth = CGFloat(StateMachineEditorDocument.stateNodeSize.width)
     static let nodeHeight = CGFloat(StateMachineEditorDocument.stateNodeSize.height)
+    static let transitionCardWidth: CGFloat = 240
+    static let transitionCardHeight: CGFloat = 124
     static let nodePadding: CGFloat = 18
     static let connectionHandleSize: CGFloat = 22
     static let connectionSnapDistance: CGFloat = 44

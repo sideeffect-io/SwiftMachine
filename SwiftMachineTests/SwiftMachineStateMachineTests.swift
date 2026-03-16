@@ -122,6 +122,36 @@ struct SwiftMachineStateMachineTests {
         #expect(movedEditor.selection == .state(id: initialStateID))
     }
 
+    @Test("Moving a transition reroutes layout without mutating the semantic machine")
+    func movingTransitionKeepsSemanticDefinitionStable() throws {
+        let editor = try makeTwoStateEditorWithEvent()
+        let initialStateID = editor.document.definition.initialStateID
+        let targetStateID = try #require(editor.document.definition.states.last?.id)
+        let eventID = try #require(editor.document.definition.events.first?.id)
+        let transitionResult = try #require(
+            editor.document.addingTransition(
+                sourceStateID: initialStateID,
+                targetStateID: targetStateID,
+                eventID: eventID
+            )
+        )
+        let nextPosition = StateMachineEditorPoint(x: 910, y: 180)
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(editor: StateMachineEditorSession(document: transitionResult.document)),
+            .moveTransition(id: transitionResult.transitionID, to: nextPosition)
+        )
+
+        guard case .designing(let movedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        #expect(movedEditor.document.definition == transitionResult.document.definition)
+        #expect(movedEditor.document.transitionPosition(for: transitionResult.transitionID) == nextPosition)
+        #expect(movedEditor.selection == .transition(id: transitionResult.transitionID))
+    }
+
     @Test("Requesting a new state opens a creation prompt without mutating the definition")
     func addStateOpensCreationPrompt() throws {
         let editor = try makeInitialEditor()
@@ -291,6 +321,7 @@ struct SwiftMachineStateMachineTests {
 
         #expect(updatedEditor.document.definition.transitions.count == 1)
         #expect(createdTransition.eventID == eventID)
+        #expect(updatedEditor.document.transitionPosition(for: createdTransition.id) == prompt.anchor)
         #expect(updatedEditor.selection == .transition(id: createdTransition.id))
         #expect(updatedEditor.transitionPrompt == nil)
     }
@@ -425,10 +456,11 @@ struct SwiftMachineStateMachineTests {
         let editor = try makeTwoStateEditor()
         let sourceStateID = editor.document.definition.initialStateID
         let targetStateID = try #require(editor.document.definition.states.last?.id)
+        let promptAnchor = StateMachineEditorPoint(x: 680, y: 360)
         let prompt = StateMachineTransitionPrompt(
             sourceStateID: sourceStateID,
             targetStateID: targetStateID,
-            anchor: StateMachineEditorPoint(x: 680, y: 360)
+            anchor: promptAnchor
         )
 
         let transition = SwiftMachineStateMachine.reduce(
@@ -454,6 +486,7 @@ struct SwiftMachineStateMachineTests {
         #expect(definition.transitions.count == 1)
         #expect(createdEvent.name == "Submit")
         #expect(createdTransition.eventID == createdEvent.id)
+        #expect(updatedEditor.document.transitionPosition(for: createdTransition.id) == promptAnchor)
         #expect(updatedEditor.selection == .transition(id: createdTransition.id))
     }
 }

@@ -174,6 +174,10 @@ struct SwiftMachineInspectorView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
+                Label("Drag a transition card to rearrange the visual routing of that arrow.", systemImage: "arrow.triangle.branch")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
                 Label("Select an edge to inspect or reassign its event.", systemImage: "slider.horizontal.3")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

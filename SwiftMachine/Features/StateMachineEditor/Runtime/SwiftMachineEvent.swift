@@ -18,6 +18,7 @@ enum SwiftMachineEvent: Sendable, Equatable {
     case selectTransition(id: String)
     case clearSelection
     case moveState(id: String, to: StateMachineEditorPoint)
+    case moveTransition(id: String, to: StateMachineEditorPoint)
     case startConnectionDrag(sourceStateID: String, location: StateMachineEditorPoint)
     case updateConnectionDrag(location: StateMachineEditorPoint)
     case completeConnectionDrag(targetStateID: String?, promptLocation: StateMachineEditorPoint)

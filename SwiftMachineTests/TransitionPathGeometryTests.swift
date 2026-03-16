@@ -6,6 +6,7 @@
 //
 
 import CoreGraphics
+import SwiftUI
 import Testing
 @testable import SwiftMachine
 
@@ -21,6 +22,44 @@ struct TransitionPathGeometryTests {
 
         #expect(geometry.arrowTip.y < frame.minY)
         #expect(geometry.arrowTip.x < frame.midX)
+    }
+
+    @Test("Routed self-loops stay closed around the state and pass through the transition card")
+    func routedSelfLoopsStayClosedAroundTheState() {
+        let frame = CGRect(x: 360, y: 240, width: 220, height: 120)
+        let transitionAnchor = CGPoint(x: frame.midX, y: frame.minY - 120)
+        let geometry = TransitionPathGeometry(
+            sourceFrame: frame,
+            transitionAnchor: transitionAnchor,
+            targetFrame: frame
+        )
+
+        #expect(geometry.labelPosition == transitionAnchor)
+        #expect(geometry.arrowTip.y < frame.minY)
+        #expect(geometry.arrowTip.x < frame.midX - 8)
+        #expect(geometry.hitPath.boundingRect.width > 70)
+    }
+
+    @Test("Routed transitions follow the moved transition card")
+    func routedTransitionsTrackTransitionPosition() {
+        let sourceFrame = CGRect(x: 360, y: 240, width: 220, height: 120)
+        let targetFrame = CGRect(x: 980, y: 240, width: 220, height: 120)
+        let upperTransitionAnchor = CGPoint(x: 770, y: 120)
+        let lowerTransitionAnchor = CGPoint(x: 770, y: 520)
+
+        let upperGeometry = TransitionPathGeometry(
+            sourceFrame: sourceFrame,
+            transitionAnchor: upperTransitionAnchor,
+            targetFrame: targetFrame
+        )
+        let lowerGeometry = TransitionPathGeometry(
+            sourceFrame: sourceFrame,
+            transitionAnchor: lowerTransitionAnchor,
+            targetFrame: targetFrame
+        )
+
+        #expect(upperGeometry.hitPath.boundingRect.minY < sourceFrame.minY)
+        #expect(lowerGeometry.hitPath.boundingRect.maxY > sourceFrame.maxY)
     }
 
     @Test("Graph labels include the guard name when a transition is guarded")

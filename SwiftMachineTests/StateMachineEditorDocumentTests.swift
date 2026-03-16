@@ -88,6 +88,27 @@ struct StateMachineEditorDocumentTests {
         #expect(moved.position(for: document.definition.initialStateID) == StateMachineEditorPoint(x: 840, y: 540))
     }
 
+    @Test("Moving a transition only updates layout metadata")
+    func movingTransitionDoesNotChangeDefinitionValidity() throws {
+        let document = try #require(makeEditorDocument())
+        let eventResult = try #require(document.addingEvent())
+        let transitionResult = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: eventResult.document.definition.initialStateID,
+                targetStateID: eventResult.document.definition.initialStateID,
+                eventID: eventResult.eventID
+            )
+        )
+        let moved = transitionResult.document.movingTransition(
+            id: transitionResult.transitionID,
+            to: StateMachineEditorPoint(x: 980, y: 420)
+        )
+
+        #expect(moved.definition == transitionResult.document.definition)
+        #expect(moved.definition.validate().isEmpty)
+        #expect(moved.transitionPosition(for: transitionResult.transitionID) == StateMachineEditorPoint(x: 980, y: 420))
+    }
+
     @Test("Renaming a state preserves layout and semantic validity")
     func renamingStatePreservesLayout() throws {
         let document = try #require(makeEditorDocument())

@@ -14,13 +14,55 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
 
     let definition: StateMachineDefinition
     let statePositions: [String: StateMachineEditorPoint]
+    let transitionPositions: [String: StateMachineEditorPoint]
 
     init(
         definition: StateMachineDefinition,
-        statePositions: [String: StateMachineEditorPoint]
+        statePositions: [String: StateMachineEditorPoint],
+        transitionPositions: [String: StateMachineEditorPoint] = [:]
     ) {
         self.definition = definition
         self.statePositions = statePositions
+        self.transitionPositions = transitionPositions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case definition
+        case statePositions
+        case transitionPositions
+        case eventPositions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        definition = try container.decode(StateMachineDefinition.self, forKey: .definition)
+        statePositions = try container.decode(
+            [String: StateMachineEditorPoint].self,
+            forKey: .statePositions
+        )
+
+        if let storedTransitionPositions = try container.decodeIfPresent(
+            [String: StateMachineEditorPoint].self,
+            forKey: .transitionPositions
+        ) {
+            transitionPositions = storedTransitionPositions
+        } else {
+            let legacyEventPositions = try container.decodeIfPresent(
+                [String: StateMachineEditorPoint].self,
+                forKey: .eventPositions
+            ) ?? [:]
+            transitionPositions = Self.transitionPositions(
+                migratingLegacyEventPositions: legacyEventPositions,
+                for: definition
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(definition, forKey: .definition)
+        try container.encode(statePositions, forKey: .statePositions)
+        try container.encode(transitionPositions, forKey: .transitionPositions)
     }
 
     static func bootstrap(definition: StateMachineDefinition) -> StateMachineEditorDocument {
@@ -55,6 +97,10 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
 
     func position(for stateID: String) -> StateMachineEditorPoint {
         statePositions[stateID] ?? Self.initialStateOrigin
+    }
+
+    func transitionPosition(for transitionID: String) -> StateMachineEditorPoint? {
+        transitionPositions[transitionID]
     }
 
     func frame(for stateID: String) -> StateMachineEditorRect {
@@ -106,7 +152,8 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         return (
             document: StateMachineEditorDocument(
                 definition: result.definition,
-                statePositions: updatedPositions
+                statePositions: updatedPositions,
+                transitionPositions: transitionPositions
             ),
             stateID: result.stateID
         )
@@ -118,10 +165,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         }
 
         return (
-            document: StateMachineEditorDocument(
-                definition: result.definition,
-                statePositions: statePositions
-            ),
+            document: preservingLayout(with: result.definition),
             eventID: result.eventID
         )
     }
@@ -137,10 +181,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func updatingStateProperties(
@@ -154,10 +195,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func movingState(
@@ -173,14 +211,34 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
 
         return StateMachineEditorDocument(
             definition: definition,
-            statePositions: updatedPositions
+            statePositions: updatedPositions,
+            transitionPositions: transitionPositions
+        )
+    }
+
+    func movingTransition(
+        id transitionID: String,
+        to position: StateMachineEditorPoint
+    ) -> StateMachineEditorDocument {
+        guard definition.transitions.contains(where: { $0.id == transitionID }) else {
+            return self
+        }
+
+        var updatedPositions = transitionPositions
+        updatedPositions[transitionID] = position
+
+        return StateMachineEditorDocument(
+            definition: definition,
+            statePositions: statePositions,
+            transitionPositions: updatedPositions
         )
     }
 
     func addingTransition(
         sourceStateID: String,
         targetStateID: String,
-        eventID: String
+        eventID: String,
+        transitionPosition: StateMachineEditorPoint? = nil
     ) -> (document: StateMachineEditorDocument, transitionID: String)? {
         guard let result = definition.addingTransition(
             sourceStateID: sourceStateID,
@@ -191,9 +249,11 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         }
 
         return (
-            document: StateMachineEditorDocument(
-                definition: result.definition,
-                statePositions: statePositions
+            document: preservingLayout(
+                with: result.definition,
+                transitionPositionOverrides: transitionPosition.map {
+                    [result.transitionID: $0]
+                } ?? [:]
             ),
             transitionID: result.transitionID
         )
@@ -202,7 +262,8 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
     func addingTransition(
         sourceStateID: String,
         targetStateID: String,
-        newEventName: String
+        newEventName: String,
+        transitionPosition: StateMachineEditorPoint? = nil
     ) -> (document: StateMachineEditorDocument, transitionID: String, eventID: String)? {
         guard let eventResult = definition.addingEvent(named: newEventName) else {
             return nil
@@ -217,9 +278,11 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         }
 
         return (
-            document: StateMachineEditorDocument(
-                definition: transitionResult.definition,
-                statePositions: statePositions
+            document: preservingLayout(
+                with: transitionResult.definition,
+                transitionPositionOverrides: transitionPosition.map {
+                    [transitionResult.transitionID: $0]
+                } ?? [:]
             ),
             transitionID: transitionResult.transitionID,
             eventID: eventResult.eventID
@@ -237,10 +300,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func assigningNewEvent(
@@ -255,10 +315,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         }
 
         return (
-            document: StateMachineEditorDocument(
-                definition: result.definition,
-                statePositions: statePositions
-            ),
+            document: preservingLayout(with: result.definition),
             eventID: result.eventID
         )
     }
@@ -274,10 +331,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func assigningTargetState(
@@ -291,10 +345,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func assigningGuard(
@@ -308,10 +359,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func removingGuard(
@@ -323,10 +371,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func addingEffect(
@@ -340,10 +385,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        return StateMachineEditorDocument(
-            definition: updatedDefinition,
-            statePositions: statePositions
-        )
+        return preservingLayout(with: updatedDefinition)
     }
 
     func removingEffect(
@@ -357,9 +399,48 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    private func preservingLayout(
+        with updatedDefinition: StateMachineDefinition,
+        transitionPositionOverrides: [String: StateMachineEditorPoint] = [:]
+    ) -> StateMachineEditorDocument {
+        let validTransitionIDs = Set(updatedDefinition.transitions.map(\.id))
+        var updatedTransitionPositions = transitionPositions.filter { validTransitionIDs.contains($0.key) }
+
+        for (transitionID, position) in transitionPositionOverrides where validTransitionIDs.contains(transitionID) {
+            updatedTransitionPositions[transitionID] = position
+        }
+
         return StateMachineEditorDocument(
             definition: updatedDefinition,
-            statePositions: statePositions
+            statePositions: statePositions,
+            transitionPositions: updatedTransitionPositions
+        )
+    }
+
+    private static func transitionPositions(
+        migratingLegacyEventPositions legacyEventPositions: [String: StateMachineEditorPoint],
+        for definition: StateMachineDefinition
+    ) -> [String: StateMachineEditorPoint] {
+        let halfLegacyWidth = 110.0
+        let halfLegacyHeight = 48.0
+
+        return Dictionary(
+            uniqueKeysWithValues: definition.transitions.compactMap { transition in
+                guard let legacyOrigin = legacyEventPositions[transition.eventID] else {
+                    return nil
+                }
+
+                return (
+                    transition.id,
+                    legacyOrigin.translatingBy(
+                        dx: halfLegacyWidth,
+                        dy: halfLegacyHeight
+                    )
+                )
+            }
         )
     }
 }

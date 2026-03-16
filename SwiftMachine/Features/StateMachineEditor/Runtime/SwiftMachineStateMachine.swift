@@ -185,6 +185,19 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
+        case (.designing(let editor), .moveTransition(let transitionID, let position)):
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: editor.document.movingTransition(id: transitionID, to: position),
+                        selection: .transition(id: transitionID),
+                        connectionDraft: editor.connectionDraft,
+                        transitionPrompt: editor.transitionPrompt
+                    )
+                ),
+                effects: []
+            )
+
         case (.designing(let editor), .startConnectionDrag(let sourceStateID, let location)):
             return .init(
                 state: .designing(
@@ -267,7 +280,8 @@ enum SwiftMachineStateMachine {
                   let result = editor.document.addingTransition(
                     sourceStateID: prompt.sourceStateID,
                     targetStateID: prompt.targetStateID,
-                    eventID: eventID
+                    eventID: eventID,
+                    transitionPosition: prompt.anchor
                   ) else {
                 return .init(state: .designing(editor: editor), effects: [])
             }
@@ -287,7 +301,8 @@ enum SwiftMachineStateMachine {
                   let result = editor.document.addingTransition(
                     sourceStateID: prompt.sourceStateID,
                     targetStateID: prompt.targetStateID,
-                    newEventName: name
+                    newEventName: name,
+                    transitionPosition: prompt.anchor
                   ) else {
                 return .init(state: .designing(editor: editor), effects: [])
             }
