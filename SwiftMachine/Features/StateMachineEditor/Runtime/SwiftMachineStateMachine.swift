@@ -86,7 +86,25 @@ enum SwiftMachineStateMachine {
             )
 
         case (.designing(let editor), .addEvent):
-            guard let result = editor.document.addingEvent() else {
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: editor.document,
+                        selection: editor.selection,
+                        eventCreationPrompt: StateMachineEventCreationPrompt(
+                            suggestedName: editor.document.suggestedEventName()
+                        )
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .confirmEventCreation(let name, let properties)):
+            guard editor.eventCreationPrompt != nil,
+                  let result = editor.document.addingEvent(
+                    named: name,
+                    properties: properties
+                  ) else {
                 return .init(state: .designing(editor: editor), effects: [])
             }
 
@@ -95,6 +113,47 @@ enum SwiftMachineStateMachine {
                     editor: StateMachineEditorSession(
                         document: result.document,
                         selection: editor.selection
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .cancelEventCreation):
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: editor.document,
+                        selection: editor.selection
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .deleteState(let stateID)):
+            guard let updatedDocument = editor.document.removingState(id: stateID) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: reconciledSelection(editor.selection, in: updatedDocument)
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .deleteEvent(let eventID)):
+            guard let updatedDocument = editor.document.removingEvent(id: eventID) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: reconciledSelection(editor.selection, in: updatedDocument)
                     )
                 ),
                 effects: []
@@ -113,6 +172,26 @@ enum SwiftMachineStateMachine {
                     editor: StateMachineEditorSession(
                         document: updatedDocument,
                         selection: .state(id: stateID),
+                        connectionDraft: editor.connectionDraft,
+                        transitionPrompt: editor.transitionPrompt
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .updateEventName(let eventID, let name)):
+            guard let updatedDocument = editor.document.renamingEvent(
+                id: eventID,
+                to: name
+            ) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: .event(id: eventID),
                         connectionDraft: editor.connectionDraft,
                         transitionPrompt: editor.transitionPrompt
                     )
@@ -140,12 +219,43 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
+        case (.designing(let editor), .updateEventProperties(let eventID, let properties)):
+            guard let updatedDocument = editor.document.updatingEventProperties(
+                properties,
+                forEventID: eventID
+            ) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: reconciledSelection(editor.selection, in: updatedDocument),
+                        connectionDraft: editor.connectionDraft,
+                        transitionPrompt: editor.transitionPrompt
+                    )
+                ),
+                effects: []
+            )
+
         case (.designing(let editor), .selectState(let stateID)):
             return .init(
                 state: .designing(
                     editor: StateMachineEditorSession(
                         document: editor.document,
                         selection: .state(id: stateID)
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .selectEvent(let eventID)):
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: editor.document,
+                        selection: .event(id: eventID)
                     )
                 ),
                 effects: []
@@ -275,12 +385,21 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
-        case (.designing(let editor), .confirmTransitionPromptWithExistingEvent(let eventID)):
+        case (.designing(let editor), .confirmTransitionPromptWithExistingEvent(
+            let eventID,
+            let properties,
+            let targetStateCreation
+        )):
             guard let prompt = editor.transitionPrompt,
-                  let result = editor.document.addingTransition(
+                  let updatedEventDocument = editor.document.updatingEventProperties(
+                    properties,
+                    forEventID: eventID
+                  ),
+                  let result = updatedEventDocument.addingTransition(
                     sourceStateID: prompt.sourceStateID,
                     targetStateID: prompt.targetStateID,
                     eventID: eventID,
+                    targetStateCreation: targetStateCreation,
                     transitionPosition: prompt.anchor
                   ) else {
                 return .init(state: .designing(editor: editor), effects: [])
@@ -296,12 +415,18 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
-        case (.designing(let editor), .confirmTransitionPromptWithNewEvent(let name)):
+        case (.designing(let editor), .confirmTransitionPromptWithNewEvent(
+            let name,
+            let properties,
+            let targetStateCreation
+        )):
             guard let prompt = editor.transitionPrompt,
                   let result = editor.document.addingTransition(
                     sourceStateID: prompt.sourceStateID,
                     targetStateID: prompt.targetStateID,
                     newEventName: name,
+                    eventProperties: properties,
+                    targetStateCreation: targetStateCreation,
                     transitionPosition: prompt.anchor
                   ) else {
                 return .init(state: .designing(editor: editor), effects: [])
@@ -364,9 +489,10 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
-        case (.designing(let editor), .assignNewEventToTransition(let transitionID, let name)):
+        case (.designing(let editor), .assignNewEventToTransition(let transitionID, let name, let properties)):
             guard let result = editor.document.assigningNewEvent(
                 named: name,
+                properties: properties,
                 toTransitionID: transitionID
             ) else {
                 return .init(state: .designing(editor: editor), effects: [])
@@ -386,6 +512,24 @@ enum SwiftMachineStateMachine {
             guard let updatedDocument = editor.document.assigningTargetState(
                 stateID: targetStateID,
                 toTransitionID: transitionID
+            ) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: .transition(id: transitionID)
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .updateTransitionTargetStateCreation(let transitionID, let targetStateCreation)):
+            guard let updatedDocument = editor.document.updatingTransitionTargetStateCreation(
+                targetStateCreation,
+                forTransitionID: transitionID
             ) else {
                 return .init(state: .designing(editor: editor), effects: [])
             }
@@ -453,6 +597,25 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
+        case (.designing(let editor), .updateEffectInTransition(let transitionID, let effectIndex, let effect)):
+            guard let updatedDocument = editor.document.updatingEffect(
+                effect,
+                at: effectIndex,
+                inTransitionID: transitionID
+            ) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: .transition(id: transitionID)
+                    )
+                ),
+                effects: []
+            )
+
         case (.designing(let editor), .removeEffectFromTransition(let transitionID, let effectIndex)):
             guard let updatedDocument = editor.document.removingEffect(
                 at: effectIndex,
@@ -474,5 +637,16 @@ enum SwiftMachineStateMachine {
         default:
             return .init(state: phase, effects: [])
         }
+    }
+
+    private static func reconciledSelection(
+        _ selection: StateMachineEditorSelection?,
+        in document: StateMachineEditorDocument
+    ) -> StateMachineEditorSelection? {
+        guard let selection else {
+            return nil
+        }
+
+        return selection.exists(in: document.definition) ? selection : nil
     }
 }

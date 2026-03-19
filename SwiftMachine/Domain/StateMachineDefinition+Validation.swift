@@ -31,6 +31,32 @@ extension StateMachineDefinition {
         let eventNames = orderedDuplicates(in: events.map(\.name))
         let knownStateIDs = Set(states.map(\.id))
         let knownEventIDs = Set(events.map(\.id))
+        let statePropertiesByStateID = states.reduce(into: [String: [String: PropertyDefinition]]()) { partialResult, state in
+            guard partialResult[state.id] == nil else {
+                return
+            }
+
+            partialResult[state.id] = state.properties.reduce(into: [String: PropertyDefinition]()) { propertyMap, property in
+                guard propertyMap[property.id] == nil else {
+                    return
+                }
+
+                propertyMap[property.id] = property
+            }
+        }
+        let eventPropertiesByEventID = events.reduce(into: [String: [String: PropertyDefinition]]()) { partialResult, event in
+            guard partialResult[event.id] == nil else {
+                return
+            }
+
+            partialResult[event.id] = event.properties.reduce(into: [String: PropertyDefinition]()) { propertyMap, property in
+                guard propertyMap[property.id] == nil else {
+                    return
+                }
+
+                propertyMap[property.id] = property
+            }
+        }
 
         for state in states {
             if state.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -101,6 +127,100 @@ extension StateMachineDefinition {
                     eventID: transition.eventID
                 ))
             }
+
+            for duplicateTargetPropertyID in orderedDuplicates(
+                in: transition.targetStateCreation.assignments.map(\.targetPropertyID)
+            ) {
+                errors.append(
+                    .duplicateTransitionTargetPropertyAssignment(
+                        transitionID: transition.id,
+                        propertyID: duplicateTargetPropertyID
+                    )
+                )
+            }
+
+            guard let targetProperties = statePropertiesByStateID[transition.targetStateID] else {
+                continue
+            }
+
+            let sourceProperties = statePropertiesByStateID[transition.sourceStateID]
+            let eventProperties = eventPropertiesByEventID[transition.eventID]
+
+            for assignment in transition.targetStateCreation.assignments {
+                guard let targetProperty = targetProperties[assignment.targetPropertyID] else {
+                    errors.append(
+                        .unknownTransitionTargetProperty(
+                            transitionID: transition.id,
+                            stateID: transition.targetStateID,
+                            propertyID: assignment.targetPropertyID
+                        )
+                    )
+                    continue
+                }
+
+                switch assignment.valueSource {
+                case .targetDefault:
+                    break
+
+                case .sourceStateProperty(let propertyID):
+                    guard let sourceProperties,
+                          let sourceProperty = sourceProperties[propertyID] else {
+                        if sourceProperties != nil {
+                            errors.append(
+                                .unknownTransitionSourceProperty(
+                                    transitionID: transition.id,
+                                    stateID: transition.sourceStateID,
+                                    propertyID: propertyID
+                                )
+                            )
+                        }
+                        continue
+                    }
+
+                    if sourceProperty.type != targetProperty.type {
+                        errors.append(
+                            .incompatibleTransitionTargetPropertyAssignment(
+                                transitionID: transition.id,
+                                targetPropertyID: targetProperty.id
+                            )
+                        )
+                    }
+
+                case .eventProperty(let propertyID):
+                    guard let eventProperties,
+                          let eventProperty = eventProperties[propertyID] else {
+                        if eventProperties != nil {
+                            errors.append(
+                                .unknownTransitionEventProperty(
+                                    transitionID: transition.id,
+                                    eventID: transition.eventID,
+                                    propertyID: propertyID
+                                )
+                            )
+                        }
+                        continue
+                    }
+
+                    if eventProperty.type != targetProperty.type {
+                        errors.append(
+                            .incompatibleTransitionTargetPropertyAssignment(
+                                transitionID: transition.id,
+                                targetPropertyID: targetProperty.id
+                            )
+                        )
+                    }
+
+                case .literal(let literalValue):
+                    if literalValue.type != targetProperty.type {
+                        errors.append(
+                            .incompatibleTransitionTargetPropertyAssignment(
+                                transitionID: transition.id,
+                                targetPropertyID: targetProperty.id
+                            )
+                        )
+                    }
+                }
+            }
         }
 
         return errors
@@ -121,5 +241,10 @@ extension StateMachineDefinition {
         case unknownTransitionSourceState(transitionID: String, stateID: String)
         case unknownTransitionTargetState(transitionID: String, stateID: String)
         case unknownTransitionEvent(transitionID: String, eventID: String)
+        case duplicateTransitionTargetPropertyAssignment(transitionID: String, propertyID: String)
+        case unknownTransitionTargetProperty(transitionID: String, stateID: String, propertyID: String)
+        case unknownTransitionSourceProperty(transitionID: String, stateID: String, propertyID: String)
+        case unknownTransitionEventProperty(transitionID: String, eventID: String, propertyID: String)
+        case incompatibleTransitionTargetPropertyAssignment(transitionID: String, targetPropertyID: String)
     }
 }

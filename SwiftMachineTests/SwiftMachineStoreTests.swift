@@ -60,6 +60,12 @@ struct SwiftMachineStoreTests {
             )
         )
         store.send(.addEvent)
+        store.send(
+            .confirmEventCreation(
+                name: "Submit",
+                properties: [PropertyDefinition(name: "amount", type: .double)]
+            )
+        )
 
         guard case .designing(let editor) = store.state else {
             Issue.record("Expected the store to stay in the designing phase.")
@@ -72,7 +78,8 @@ struct SwiftMachineStoreTests {
         #expect(definition.states.last?.name == "Loading")
         #expect(definition.states.last?.properties.map(\.name) == ["position"])
         #expect(definition.events.count == 1)
-        #expect(definition.events.first?.name == "Event 1")
+        #expect(definition.events.first?.name == "Submit")
+        #expect(definition.events.first?.properties.map(\.name) == ["amount"])
 
         let expectedPosition = StateMachineEditorDocument.initialStateOrigin.translatingBy(
             dx: StateMachineEditorDocument.stateOriginOffset.x,

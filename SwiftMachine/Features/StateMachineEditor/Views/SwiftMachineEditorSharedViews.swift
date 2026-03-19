@@ -177,22 +177,45 @@ struct PropertyDefaultValueDraft: Equatable {
 }
 
 struct PropertyDefaultValueEditor: View {
+    enum Layout {
+        case stacked
+        case inline
+    }
+
     let type: PropertyType
     @Binding var draft: PropertyDefaultValueDraft
+    var layout: Layout = .stacked
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle("Default Value", isOn: $draft.isEnabled)
-                .toggleStyle(.switch)
+        switch layout {
+        case .stacked:
+            VStack(alignment: .leading, spacing: 10) {
+                defaultValueToggle
 
-            if draft.isEnabled {
-                inputField
+                if draft.isEnabled {
+                    stackedInputField
+                }
+            }
+
+        case .inline:
+            HStack(alignment: .center, spacing: 12) {
+                defaultValueToggle
+                    .fixedSize(horizontal: true, vertical: false)
+
+                if draft.isEnabled {
+                    inlineInputField
+                }
             }
         }
     }
 
+    private var defaultValueToggle: some View {
+        Toggle("Default Value", isOn: $draft.isEnabled)
+            .toggleStyle(.switch)
+    }
+
     @ViewBuilder
-    private var inputField: some View {
+    private var stackedInputField: some View {
         switch type {
         case .string:
             TextField("Default string", text: $draft.stringValue, axis: .vertical)
@@ -214,6 +237,186 @@ struct PropertyDefaultValueEditor: View {
             .labelsHidden()
             .pickerStyle(.segmented)
             .frame(maxWidth: 200, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var inlineInputField: some View {
+        switch type {
+        case .string:
+            TextField("Default string", text: $draft.stringValue)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+        case .integer:
+            TextField("Default integer", text: $draft.integerValue)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+        case .double:
+            TextField("Default double", text: $draft.doubleValue)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+        case .boolean:
+            Picker("Default value", selection: $draft.booleanValue) {
+                Text("False")
+                    .tag(false)
+                Text("True")
+                    .tag(true)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 200, alignment: .leading)
+        }
+    }
+}
+
+struct EditorPropertyDraft: Identifiable, Equatable {
+    let id: String
+    var name: String
+    var type: PropertyType
+    var isOptional: Bool
+    var defaultValue: PropertyDefaultValueDraft
+
+    nonisolated init(
+        id: String = UUID().uuidString,
+        name: String = "",
+        type: PropertyType = .string,
+        isOptional: Bool = false,
+        defaultValue: PropertyDefaultValueDraft = .init()
+    ) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.isOptional = isOptional
+        self.defaultValue = defaultValue
+    }
+
+    nonisolated init(property: PropertyDefinition) {
+        self.init(
+            id: property.id,
+            name: property.name,
+            type: property.type,
+            isOptional: property.isOptional,
+            defaultValue: PropertyDefaultValueDraft(defaultValue: property.defaultValue)
+        )
+    }
+
+    var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var propertyDefinition: PropertyDefinition {
+        PropertyDefinition(
+            id: id,
+            name: trimmedName,
+            type: type,
+            isOptional: isOptional,
+            defaultValue: defaultValue.literalValue(for: type)
+        )
+    }
+
+    var defaultValueValidationMessage: String? {
+        defaultValue.validationMessage(
+            for: type,
+            propertyName: trimmedName
+        )
+    }
+}
+
+extension Array where Element == EditorPropertyDraft {
+    var propertyDefinitions: [PropertyDefinition] {
+        map(\.propertyDefinition)
+    }
+
+    func validationMessage(
+        emptyNameMessage: String,
+        duplicateNameMessage: String
+    ) -> String? {
+        let trimmedPropertyNames = map(\.trimmedName)
+
+        if trimmedPropertyNames.contains(where: \.isEmpty) {
+            return emptyNameMessage
+        }
+
+        if Set(trimmedPropertyNames).count != trimmedPropertyNames.count {
+            return duplicateNameMessage
+        }
+
+        if let defaultValueValidationMessage = compactMap(\.defaultValueValidationMessage).first {
+            return defaultValueValidationMessage
+        }
+
+        return nil
+    }
+}
+
+struct EditorPropertyDraftRowView: View {
+    @Binding var propertyDraft: EditorPropertyDraft
+    let remove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Property name", text: $propertyDraft.name)
+                .textFieldStyle(.roundedBorder)
+
+            HStack(alignment: .top, spacing: 12) {
+                EditorPropertyControlColumn(title: "Type") {
+                    Picker("Type", selection: $propertyDraft.type) {
+                        ForEach(PropertyType.allCases, id: \.self) { propertyType in
+                            Text(propertyType.rawValue.capitalized)
+                                .tag(propertyType)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                EditorPropertyControlColumn(title: "Optional") {
+                    Toggle("", isOn: $propertyDraft.isOptional)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                Spacer(minLength: 0)
+
+                Button(role: .destructive, action: remove) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Remove property")
+            }
+
+            PropertyDefaultValueEditor(
+                type: propertyDraft.type,
+                draft: $propertyDraft.defaultValue
+            )
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+        }
+    }
+}
+
+struct EditorPropertyControlColumn<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+
+            content
         }
     }
 }

@@ -54,6 +54,39 @@ struct StateMachineDefinitionTests {
         }
     }
 
+    @Test("Transitions decode when target-state creation metadata is absent")
+    func decodingDefaultsMissingTransitionTargetStateCreation() throws {
+        let json = try #require(
+            """
+            {
+              "id": "machine",
+              "name": "Loader",
+              "initialStateID": "idle",
+              "states": [
+                { "id": "idle", "name": "Idle", "properties": [] },
+                { "id": "loading", "name": "Loading", "properties": [] }
+              ],
+              "events": [
+                { "id": "begin", "name": "Begin", "properties": [] }
+              ],
+              "transitions": [
+                {
+                  "id": "start-loading",
+                  "sourceStateID": "idle",
+                  "eventID": "begin",
+                  "targetStateID": "loading",
+                  "effects": []
+                }
+              ]
+            }
+            """.data(using: .utf8)
+        )
+
+        let decoded = try JSONDecoder().decode(StateMachineDefinition.self, from: json)
+
+        #expect(decoded.transitions.first?.targetStateCreation == .init())
+    }
+
     @Test("Validation fails when initialStateID points to an unknown state")
     func unknownInitialStateIsRejected() {
         let machine = makeMachine(initialStateID: "missing")
@@ -140,6 +173,69 @@ struct StateMachineDefinitionTests {
         #expect(errors.contains(.unknownTransitionEvent(
             transitionID: "broken",
             eventID: "missing-event"
+        )))
+    }
+
+    @Test("Validation fails on invalid target-state creation assignments")
+    func invalidTransitionTargetStateCreationAssignmentsAreRejected() {
+        let machine = makeMachine(
+            states: [
+                StateDefinition(
+                    id: "idle",
+                    name: "Idle",
+                    properties: [
+                        PropertyDefinition(id: "source-amount", name: "amount", type: .double)
+                    ]
+                ),
+                StateDefinition(
+                    id: "loading",
+                    name: "Loading",
+                    properties: [
+                        PropertyDefinition(id: "target-amount", name: "amount", type: .double)
+                    ]
+                )
+            ],
+            events: [
+                EventDefinition(
+                    id: "begin",
+                    name: "Begin",
+                    properties: [
+                        PropertyDefinition(id: "event-flag", name: "flag", type: .boolean)
+                    ]
+                )
+            ],
+            transitions: [
+                TransitionDefinition(
+                    id: "start-loading",
+                    sourceStateID: "idle",
+                    eventID: "begin",
+                    targetStateID: "loading",
+                    targetStateCreation: TransitionTargetStateCreation(
+                        assignments: [
+                            TransitionTargetStatePropertyAssignment(
+                                targetPropertyID: "missing-target-property",
+                                valueSource: .targetDefault
+                            ),
+                            TransitionTargetStatePropertyAssignment(
+                                targetPropertyID: "target-amount",
+                                valueSource: .eventProperty(propertyID: "event-flag")
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+
+        let errors = machine.validate()
+
+        #expect(errors.contains(.unknownTransitionTargetProperty(
+            transitionID: "start-loading",
+            stateID: "loading",
+            propertyID: "missing-target-property"
+        )))
+        #expect(errors.contains(.incompatibleTransitionTargetPropertyAssignment(
+            transitionID: "start-loading",
+            targetPropertyID: "target-amount"
         )))
     }
 

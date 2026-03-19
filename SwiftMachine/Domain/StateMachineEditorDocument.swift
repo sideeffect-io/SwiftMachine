@@ -121,6 +121,10 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         definition.nextAvailableStateName()
     }
 
+    func suggestedEventName() -> String {
+        definition.nextAvailableEventName()
+    }
+
     func addingState() -> (document: StateMachineEditorDocument, stateID: String)? {
         addingState(
             named: suggestedStateName(),
@@ -170,12 +174,53 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         )
     }
 
+    func addingEvent(
+        named eventName: String,
+        properties: [PropertyDefinition]
+    ) -> (document: StateMachineEditorDocument, eventID: String)? {
+        guard let result = definition.addingEvent(
+            named: eventName,
+            properties: properties
+        ) else {
+            return nil
+        }
+
+        return (
+            document: preservingLayout(with: result.definition),
+            eventID: result.eventID
+        )
+    }
+
     func renamingState(
         id stateID: String,
         to proposedName: String
     ) -> StateMachineEditorDocument? {
         guard let updatedDefinition = definition.renamingState(
             id: stateID,
+            to: proposedName
+        ) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func removingState(
+        id stateID: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.removingState(id: stateID) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func renamingEvent(
+        id eventID: String,
+        to proposedName: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.renamingEvent(
+            id: eventID,
             to: proposedName
         ) else {
             return nil
@@ -191,6 +236,30 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         guard let updatedDefinition = definition.updatingProperties(
             properties,
             forStateID: stateID
+        ) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func removingEvent(
+        id eventID: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.removingEvent(id: eventID) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func updatingEventProperties(
+        _ properties: [PropertyDefinition],
+        forEventID eventID: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.updatingProperties(
+            properties,
+            forEventID: eventID
         ) else {
             return nil
         }
@@ -238,12 +307,14 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         sourceStateID: String,
         targetStateID: String,
         eventID: String,
+        targetStateCreation: TransitionTargetStateCreation? = nil,
         transitionPosition: StateMachineEditorPoint? = nil
     ) -> (document: StateMachineEditorDocument, transitionID: String)? {
         guard let result = definition.addingTransition(
             sourceStateID: sourceStateID,
             eventID: eventID,
-            targetStateID: targetStateID
+            targetStateID: targetStateID,
+            targetStateCreation: targetStateCreation
         ) else {
             return nil
         }
@@ -263,16 +334,22 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         sourceStateID: String,
         targetStateID: String,
         newEventName: String,
+        eventProperties: [PropertyDefinition],
+        targetStateCreation: TransitionTargetStateCreation? = nil,
         transitionPosition: StateMachineEditorPoint? = nil
     ) -> (document: StateMachineEditorDocument, transitionID: String, eventID: String)? {
-        guard let eventResult = definition.addingEvent(named: newEventName) else {
+        guard let eventResult = definition.addingEvent(
+            named: newEventName,
+            properties: eventProperties
+        ) else {
             return nil
         }
 
         guard let transitionResult = eventResult.definition.addingTransition(
             sourceStateID: sourceStateID,
             eventID: eventResult.eventID,
-            targetStateID: targetStateID
+            targetStateID: targetStateID,
+            targetStateCreation: targetStateCreation
         ) else {
             return nil
         }
@@ -305,10 +382,12 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
 
     func assigningNewEvent(
         named eventName: String,
+        properties: [PropertyDefinition],
         toTransitionID transitionID: String
     ) -> (document: StateMachineEditorDocument, eventID: String)? {
         guard let result = definition.assigningNewEvent(
             named: eventName,
+            properties: properties,
             toTransitionID: transitionID
         ) else {
             return nil
@@ -341,6 +420,20 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         guard let updatedDefinition = definition.assigningTargetState(
             stateID: stateID,
             toTransitionID: transitionID
+        ) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func updatingTransitionTargetStateCreation(
+        _ targetStateCreation: TransitionTargetStateCreation,
+        forTransitionID transitionID: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.updatingTargetStateCreation(
+            targetStateCreation,
+            forTransitionID: transitionID
         ) else {
             return nil
         }
@@ -388,6 +481,22 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         return preservingLayout(with: updatedDefinition)
     }
 
+    func updatingEffect(
+        _ effectReference: EffectReference,
+        at index: Int,
+        inTransitionID transitionID: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.updatingEffect(
+            effectReference,
+            at: index,
+            inTransitionID: transitionID
+        ) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
     func removingEffect(
         at index: Int,
         fromTransitionID transitionID: String
@@ -406,7 +515,9 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         with updatedDefinition: StateMachineDefinition,
         transitionPositionOverrides: [String: StateMachineEditorPoint] = [:]
     ) -> StateMachineEditorDocument {
+        let validStateIDs = Set(updatedDefinition.states.map(\.id))
         let validTransitionIDs = Set(updatedDefinition.transitions.map(\.id))
+        let updatedStatePositions = statePositions.filter { validStateIDs.contains($0.key) }
         var updatedTransitionPositions = transitionPositions.filter { validTransitionIDs.contains($0.key) }
 
         for (transitionID, position) in transitionPositionOverrides where validTransitionIDs.contains(transitionID) {
@@ -415,7 +526,7 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
 
         return StateMachineEditorDocument(
             definition: updatedDefinition,
-            statePositions: statePositions,
+            statePositions: updatedStatePositions,
             transitionPositions: updatedTransitionPositions
         )
     }

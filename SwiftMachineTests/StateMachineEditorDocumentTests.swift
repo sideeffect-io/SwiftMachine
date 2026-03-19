@@ -200,6 +200,72 @@ struct StateMachineEditorDocumentTests {
         #expect(updatedTransition.targetStateID == initialStateID)
     }
 
+    @Test("Transition target-state creation reconciles when referenced properties disappear")
+    func transitionTargetStateCreationReconcilesAfterPropertyChanges() throws {
+        let machine = try #require(
+            StateMachineDefinition.makeNew(
+                name: "Checkout",
+                initialStateName: "Idle",
+                initialStateProperties: [
+                    PropertyDefinition(id: "source-amount", name: "amount", type: .double)
+                ]
+            )
+        )
+        let baseDocument = StateMachineEditorDocument.bootstrap(definition: machine)
+        let secondStateResult = try #require(
+            baseDocument.addingState(
+                named: "Loading",
+                properties: [
+                    PropertyDefinition(id: "target-amount", name: "amount", type: .double)
+                ]
+            )
+        )
+        let eventResult = try #require(secondStateResult.document.addingEvent())
+        let initialStateID = secondStateResult.document.definition.initialStateID
+        let targetState = try #require(
+            secondStateResult.document.definition.states.first(where: { $0.id == secondStateResult.stateID })
+        )
+        let targetAmountPropertyID = try #require(
+            targetState.properties.first(where: { $0.name == "amount" })?.id
+        )
+
+        let transitionResult = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: initialStateID,
+                targetStateID: secondStateResult.stateID,
+                eventID: eventResult.eventID
+            )
+        )
+        let mappedDocument = try #require(
+            transitionResult.document.updatingTransitionTargetStateCreation(
+                TransitionTargetStateCreation(
+                    assignments: [
+                        TransitionTargetStatePropertyAssignment(
+                            targetPropertyID: targetAmountPropertyID,
+                            valueSource: .sourceStateProperty(propertyID: "source-amount")
+                        )
+                    ]
+                ),
+                forTransitionID: transitionResult.transitionID
+            )
+        )
+        let reconciledDocument = try #require(
+            mappedDocument.updatingStateProperties(
+                [],
+                forStateID: initialStateID
+            )
+        )
+
+        let reconciledTransition = try #require(
+            reconciledDocument.definition.transitions.first(where: { $0.id == transitionResult.transitionID })
+        )
+
+        #expect(reconciledDocument.definition.validate().isEmpty)
+        #expect(
+            reconciledTransition.targetStateCreation.assignments.first?.valueSource == .targetDefault
+        )
+    }
+
     @Test("Document can create transition events and edit guard/effect references")
     func documentEditsTransitionReferences() throws {
         let baseDocument = try #require(makeEditorDocument())
@@ -218,11 +284,23 @@ struct StateMachineEditorDocumentTests {
         let newEventResult = try #require(
             transitionResult.document.assigningNewEvent(
                 named: "Submit",
+                properties: [
+                    PropertyDefinition(name: "attemptCount", type: .integer, defaultValue: .integer(1))
+                ],
                 toTransitionID: transitionResult.transitionID
             )
         )
+        let eventUpdatedDocument = try #require(
+            newEventResult.document.updatingEventProperties(
+                [
+                    PropertyDefinition(name: "attemptCount", type: .integer, defaultValue: .integer(2)),
+                    PropertyDefinition(name: "channel", type: .string, isOptional: true)
+                ],
+                forEventID: newEventResult.eventID
+            )
+        )
         let guardedDocument = try #require(
-            newEventResult.document.assigningGuard(
+            eventUpdatedDocument.assigningGuard(
                 GuardReference(
                     name: "canSubmit",
                     description: "Checks that the form is valid"
@@ -239,8 +317,18 @@ struct StateMachineEditorDocumentTests {
                 toTransitionID: transitionResult.transitionID
             )
         )
+        let updatedEffectDocument = try #require(
+            effectedDocument.updatingEffect(
+                EffectReference(
+                    name: "trackSubmitSuccess",
+                    description: "Sends a success analytic event"
+                ),
+                at: 0,
+                inTransitionID: transitionResult.transitionID
+            )
+        )
         let effectRemovedDocument = try #require(
-            effectedDocument.removingEffect(
+            updatedEffectDocument.removingEffect(
                 at: 0,
                 fromTransitionID: transitionResult.transitionID
             )
@@ -257,10 +345,22 @@ struct StateMachineEditorDocumentTests {
         let createdEvent = try #require(
             guardRemovedDocument.definition.events.first(where: { $0.id == newEventResult.eventID })
         )
+        let updatedEffect = try #require(
+            updatedEffectDocument.definition.transitions
+                .first(where: { $0.id == transitionResult.transitionID })?
+                .effects
+                .first
+        )
 
         #expect(guardRemovedDocument.definition.validate().isEmpty)
         #expect(guardRemovedDocument.definition.events.count == 2)
         #expect(createdEvent.name == "Submit")
+        #expect(createdEvent.properties.map(\.name) == ["attemptCount", "channel"])
+        #expect(createdEvent.properties.map(\.type) == [.integer, .string])
+        #expect(createdEvent.properties.map(\.isOptional) == [false, true])
+        #expect(createdEvent.properties.map(\.defaultValue) == [.integer(2), nil])
+        #expect(updatedEffect.name == "trackSubmitSuccess")
+        #expect(updatedEffect.description == "Sends a success analytic event")
         #expect(updatedTransition.eventID == newEventResult.eventID)
         #expect(updatedTransition.guard == nil)
         #expect(updatedTransition.effects.isEmpty)
@@ -291,6 +391,87 @@ struct StateMachineEditorDocumentTests {
         #expect(updatedState.properties.map(\.type) == [.integer, .integer])
         #expect(updatedState.properties.map(\.isOptional) == [false, true])
         #expect(updatedState.properties.map(\.defaultValue) == [.integer(0), .integer(99)])
+    }
+
+    @Test("Removing the initial state drops its layout metadata and attached transitions")
+    func removingStatePrunesLayoutAndTransitions() throws {
+        let baseDocument = try #require(makeEditorDocument())
+        let secondStateResult = try #require(baseDocument.addingState(named: "Loading", properties: []))
+        let eventResult = try #require(secondStateResult.document.addingEvent(named: "Submit", properties: []))
+        let initialStateID = eventResult.document.definition.initialStateID
+        let secondStateID = secondStateResult.stateID
+        let transitionResult = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: initialStateID,
+                targetStateID: secondStateID,
+                eventID: eventResult.eventID,
+                transitionPosition: StateMachineEditorPoint(x: 720, y: 280)
+            )
+        )
+
+        let updatedDocument = try #require(
+            transitionResult.document.removingState(id: initialStateID)
+        )
+
+        #expect(updatedDocument.definition.initialStateID == secondStateID)
+        #expect(updatedDocument.definition.states.map(\.id) == [secondStateID])
+        #expect(updatedDocument.definition.transitions.isEmpty)
+        #expect(updatedDocument.statePositions[initialStateID] == nil)
+        #expect(updatedDocument.transitionPositions[transitionResult.transitionID] == nil)
+        #expect(updatedDocument.definition.validate().isEmpty)
+    }
+
+    @Test("Removing an event drops attached transitions and transition layout metadata")
+    func removingEventPrunesTransitionsAndLayout() throws {
+        let baseDocument = try #require(makeEditorDocument())
+        let secondStateResult = try #require(baseDocument.addingState(named: "Loading", properties: []))
+        let eventResult = try #require(secondStateResult.document.addingEvent(named: "Submit", properties: []))
+        let initialStateID = eventResult.document.definition.initialStateID
+        let secondStateID = secondStateResult.stateID
+        let transitionResult = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: initialStateID,
+                targetStateID: secondStateID,
+                eventID: eventResult.eventID,
+                transitionPosition: StateMachineEditorPoint(x: 720, y: 280)
+            )
+        )
+
+        let updatedDocument = try #require(
+            transitionResult.document.removingEvent(id: eventResult.eventID)
+        )
+
+        #expect(updatedDocument.definition.events.isEmpty)
+        #expect(updatedDocument.definition.transitions.isEmpty)
+        #expect(updatedDocument.transitionPositions[transitionResult.transitionID] == nil)
+        #expect(updatedDocument.definition.validate().isEmpty)
+    }
+
+    @Test("Renaming an event preserves layout and semantic validity")
+    func renamingEventPreservesLayout() throws {
+        let document = try #require(makeEditorDocument())
+        let eventResult = try #require(
+            document.addingEvent(
+                named: "Submit",
+                properties: [PropertyDefinition(name: "amount", type: .double)]
+            )
+        )
+
+        let updatedDocument = try #require(
+            eventResult.document.renamingEvent(
+                id: eventResult.eventID,
+                to: "Confirm"
+            )
+        )
+
+        let updatedEvent = try #require(
+            updatedDocument.definition.events.first(where: { $0.id == eventResult.eventID })
+        )
+
+        #expect(updatedDocument.definition.validate().isEmpty)
+        #expect(updatedDocument.statePositions == eventResult.document.statePositions)
+        #expect(updatedDocument.transitionPositions == eventResult.document.transitionPositions)
+        #expect(updatedEvent.name == "Confirm")
     }
 
     @Test("Property default drafts preserve empty strings and validate typed literals")

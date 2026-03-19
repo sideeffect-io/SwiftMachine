@@ -50,7 +50,7 @@ struct SwiftMachineCanvasView: View {
         case .empty:
             wizardLayout(
                 title: "Create a State Machine",
-                subtitle: "Start by naming the machine. The reducer stays in `.empty` until a non-empty name is submitted."
+                subtitle: "Start by naming the machine."
             ) {
                 MachineDraftStepView()
             }
@@ -58,7 +58,7 @@ struct SwiftMachineCanvasView: View {
         case .drafting(let machineName):
             wizardLayout(
                 title: "Create the Initial State",
-                subtitle: "The graph editor unlocks only after the initial state has been defined."
+                subtitle: nil
             ) {
                 InitialStateSetupStepView(machineName: machineName)
                     .id(machineName)
@@ -71,7 +71,7 @@ struct SwiftMachineCanvasView: View {
 
     private func wizardLayout<Content: View>(
         title: String,
-        subtitle: String,
+        subtitle: String?,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(spacing: SwiftMachineShellMetrics.panelSpacing) {
@@ -82,7 +82,7 @@ struct SwiftMachineCanvasView: View {
         }
     }
 
-    private func canvasHeader(title: String, subtitle: String) -> some View {
+    private func canvasHeader(title: String, subtitle: String?) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "point.3.connected.trianglepath.dotted")
                 .foregroundStyle(.secondary)
@@ -91,9 +91,11 @@ struct SwiftMachineCanvasView: View {
                 Text(title)
                     .font(.headline)
 
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()
@@ -171,21 +173,28 @@ private struct WizardGridBackground: View {
 private struct MachineDraftStepView: View {
     @Environment(SwiftMachineStore.self) private var store
     @State private var machineName = ""
+    @FocusState private var isMachineNameFocused: Bool
 
     var body: some View {
         WizardCard(
             symbol: "square.and.pencil",
             title: "Name the Machine",
-            description: "This value becomes the canonical `StateMachineDefinition.name` once the initial state is created."
+            description: nil
         ) {
             TextField("Checkout Flow", text: $machineName)
                 .textFieldStyle(.roundedBorder)
+                .focused($isMachineNameFocused)
+                .defaultFocus($isMachineNameFocused, true)
                 .onSubmit(submit)
 
             Button("Continue", systemImage: "arrow.right.circle.fill", action: submit)
                 .buttonStyle(.borderedProminent)
                 .disabled(trimmedMachineName.isEmpty)
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .task {
+            await Task.yield()
+            isMachineNameFocused = true
         }
     }
 
@@ -195,9 +204,11 @@ private struct MachineDraftStepView: View {
 
     private func submit() {
         guard !trimmedMachineName.isEmpty else {
+            isMachineNameFocused = true
             return
         }
 
+        isMachineNameFocused = false
         store.send(.createEmptyStateMachine(name: machineName))
     }
 }
@@ -209,12 +220,13 @@ private struct InitialStateSetupStepView: View {
 
     @State private var initialStateName = ""
     @State private var propertyDrafts: [InitialStatePropertyDraft] = []
+    @FocusState private var isInitialStateNameFocused: Bool
 
     var body: some View {
         WizardCard(
             symbol: "circle.hexagongrid",
             title: "Define the Initial State",
-            description: "This step creates the first valid `StateMachineDefinition` and unlocks the graph editor."
+            description: nil
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Machine")
@@ -229,17 +241,14 @@ private struct InitialStateSetupStepView: View {
 
             TextField("Initial state name", text: $initialStateName)
                 .textFieldStyle(.roundedBorder)
-                .onSubmit(submit)
+                .focused($isInitialStateNameFocused)
+                .defaultFocus($isInitialStateNameFocused, true)
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Initial State Properties")
                             .font(.headline)
-
-                        Text("Properties are local wizard inputs and are submitted as full `PropertyDefinition` values.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()
@@ -272,8 +281,14 @@ private struct InitialStateSetupStepView: View {
 
             Button("Enter the Editor", systemImage: "sparkles.rectangle.stack", action: submit)
                 .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
                 .disabled(!canSubmit)
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .onSubmit(submit)
+        .task(id: machineName) {
+            await Task.yield()
+            isInitialStateNameFocused = true
         }
     }
 
@@ -315,9 +330,13 @@ private struct InitialStateSetupStepView: View {
 
     private func submit() {
         guard canSubmit else {
+            if trimmedInitialStateName.isEmpty {
+                isInitialStateNameFocused = true
+            }
             return
         }
 
+        isInitialStateNameFocused = false
         store.send(
             .setInitialState(
                 name: initialStateName,
@@ -330,7 +349,7 @@ private struct InitialStateSetupStepView: View {
 private struct WizardCard<Content: View>: View {
     let symbol: String
     let title: String
-    let description: String
+    let description: String?
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -338,10 +357,12 @@ private struct WizardCard<Content: View>: View {
             Label(title, systemImage: symbol)
                 .font(.title2.weight(.semibold))
 
-            Text(description)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let description, !description.isEmpty {
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             VStack(alignment: .leading, spacing: 16) {
                 content
@@ -418,7 +439,8 @@ private struct PropertyDraftRowView: View {
 
             PropertyDefaultValueEditor(
                 type: propertyDraft.type,
-                draft: $propertyDraft.defaultValue
+                draft: $propertyDraft.defaultValue,
+                layout: .inline
             )
         }
         .padding(14)

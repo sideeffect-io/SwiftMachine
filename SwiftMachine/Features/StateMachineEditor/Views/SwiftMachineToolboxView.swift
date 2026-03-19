@@ -7,6 +7,14 @@
 
 import SwiftUI
 
+private let toolboxCreationPromptAnimation = Animation.spring(response: 0.34, dampingFraction: 0.9)
+private let toolboxCreationPromptTransition = AnyTransition.opacity
+
+private struct ToolboxPromptVisibility: Equatable {
+    let isStatePromptPresented: Bool
+    let isEventPromptPresented: Bool
+}
+
 struct SwiftMachineToolboxView: View {
     @Environment(SwiftMachineStore.self) private var store
 
@@ -16,9 +24,9 @@ struct SwiftMachineToolboxView: View {
                 header
 
                 if let editor {
-                    machineSummary(editor.document.definition)
                     createSection(editor)
-                    eventLibrary(editor.document.definition.events)
+                    stateLibrary(editor)
+                    eventLibrary(editor)
                 } else {
                     EditorPanelSection(
                         title: "Wizard",
@@ -49,12 +57,30 @@ struct SwiftMachineToolboxView: View {
         return editor
     }
 
+    private var selectedStateID: String? {
+        guard let editor,
+              case .state(let stateID) = editor.selection else {
+            return nil
+        }
+
+        return stateID
+    }
+
+    private var selectedEventID: String? {
+        guard let editor,
+              case .event(let eventID) = editor.selection else {
+            return nil
+        }
+
+        return eventID
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Palette", systemImage: "shippingbox")
                 .font(.title2.weight(.semibold))
 
-            Text("The left panel owns machine-wide creation actions and the reusable event library for the graph.")
+            Text("The left panel owns machine-wide creation actions plus the reusable state and event libraries for the graph.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -79,19 +105,6 @@ struct SwiftMachineToolboxView: View {
         )
     }
 
-    private func machineSummary(_ definition: StateMachineDefinition) -> some View {
-        EditorPanelSection(
-            title: "Definition",
-            description: "The palette exposes compact machine metrics while the graph stays focused on topology."
-        ) {
-            EditorInfoRow(label: "Machine", value: definition.name, symbol: "point.3.connected.trianglepath.dotted")
-            EditorInfoRow(label: "States", value: "\(definition.states.count)", symbol: "circle.hexagongrid")
-            EditorInfoRow(label: "Events", value: "\(definition.events.count)", symbol: "bolt.horizontal.circle")
-            EditorInfoRow(label: "Transitions", value: "\(definition.transitions.count)", symbol: "arrow.triangle.branch")
-            EditorBadge(text: definition.isValid ? "Valid Definition" : "Invalid Definition", tint: definition.isValid ? .green : .red)
-        }
-    }
-
     private func createSection(_ editor: StateMachineEditorSession) -> some View {
         EditorPanelSection(
             title: "Create Elements",
@@ -112,6 +125,8 @@ struct SwiftMachineToolboxView: View {
                     reusableProperties: editor.document.definition.reusableStatePropertyOptions
                 )
                 .id(prompt.suggestedName)
+                .transition(toolboxCreationPromptTransition)
+                .zIndex(1)
             }
 
             ToolboxActionCard(
@@ -121,13 +136,65 @@ struct SwiftMachineToolboxView: View {
             ) {
                 store.send(.addEvent)
             }
+
+            if let prompt = editor.eventCreationPrompt {
+                EventCreationPromptView(
+                    prompt: prompt,
+                    existingEventNames: editor.document.definition.events.map(\.name)
+                )
+                .id(prompt.suggestedName)
+                .transition(toolboxCreationPromptTransition)
+                .zIndex(1)
+            }
+        }
+        .animation(
+            toolboxCreationPromptAnimation,
+            value: ToolboxPromptVisibility(
+                isStatePromptPresented: editor.stateCreationPrompt != nil,
+                isEventPromptPresented: editor.eventCreationPrompt != nil
+            )
+        )
+    }
+
+    private func stateLibrary(_ editor: StateMachineEditorSession) -> some View {
+        let definition = editor.document.definition
+        let states = definition.states
+
+        return EditorPanelSection(
+            title: "State Library",
+            description: "Select a state to inspect its payload or remove it from the machine. Deleting a state also removes any attached transitions."
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(states) { state in
+                    PaletteLibraryCard(
+                        symbol: "circle.hexagongrid.fill",
+                        symbolColor: .blue,
+                        title: state.name,
+                        subtitle: stateLibrarySubtitle(
+                            for: state,
+                            initialStateID: definition.initialStateID
+                        ),
+                        isSelected: selectedStateID == state.id,
+                        isDeleteEnabled: states.count > 1,
+                        deleteHelp: states.count > 1
+                            ? "Delete state"
+                            : "At least one state must remain in the machine."
+                    ) {
+                        store.send(.selectState(id: state.id))
+                    } onDelete: {
+                        store.send(.deleteState(id: state.id))
+                    }
+                }
+            }
         }
     }
 
-    private func eventLibrary(_ events: [EventDefinition]) -> some View {
-        EditorPanelSection(
+    private func eventLibrary(_ editor: StateMachineEditorSession) -> some View {
+        let events = editor.document.definition.events
+
+        return EditorPanelSection(
             title: "Event Library",
-            description: "Transition creation can bind to any existing event or create a new one on drop."
+            description: "Transition creation can bind to any existing event or create a new one on drop. Deleting an event also removes the related transitions."
         ) {
             if events.isEmpty {
                 Label("No events yet. Create one here or from the transition prompt.", systemImage: "bolt.horizontal.circle")
@@ -136,30 +203,40 @@ struct SwiftMachineToolboxView: View {
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(events) { event in
-                        HStack(spacing: 10) {
-                            Image(systemName: "bolt.horizontal.circle.fill")
-                                .foregroundStyle(.orange)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(event.name)
-                                    .font(.body.weight(.semibold))
-
-                                Text(event.properties.isEmpty ? "No payload" : "\(event.properties.count) payload propert\(event.properties.count == 1 ? "y" : "ies")")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer(minLength: 0)
+                        PaletteLibraryCard(
+                            symbol: "bolt.horizontal.circle.fill",
+                            symbolColor: .orange,
+                            title: event.name,
+                            subtitle: payloadSummary(for: event.properties.count),
+                            isSelected: selectedEventID == event.id
+                        ) {
+                            store.send(.selectEvent(id: event.id))
+                        } onDelete: {
+                            store.send(.deleteEvent(id: event.id))
                         }
-                        .padding(12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.primary.opacity(0.04))
-                        )
                     }
                 }
             }
         }
+    }
+
+    private func stateLibrarySubtitle(
+        for state: StateDefinition,
+        initialStateID: String
+    ) -> String {
+        let payloadText = payloadSummary(for: state.properties.count)
+
+        guard state.id == initialStateID else {
+            return payloadText
+        }
+
+        return "Initial state, \(payloadText.lowercased())"
+    }
+
+    private func payloadSummary(for propertyCount: Int) -> String {
+        propertyCount == 0
+            ? "No payload"
+            : "\(propertyCount) payload propert\(propertyCount == 1 ? "y" : "ies")"
     }
 }
 
@@ -197,23 +274,11 @@ private struct StateCreationPromptView: View {
                 .onSubmit(createState)
 
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("New Properties")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-
-                        Text("Create payload fields directly in this state before it lands on the canvas.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    Button("Add Property", systemImage: "plus.circle") {
-                        propertyDrafts.append(.init())
-                    }
+                Button {
+                    propertyDrafts.append(.init())
+                } label: {
+                    Label("Add Property", systemImage: "plus.circle")
+                        .frame(maxWidth: .infinity)
                 }
 
                 if propertyDrafts.isEmpty {
@@ -414,6 +479,139 @@ private struct StateCreationPromptView: View {
     }
 }
 
+private struct EventCreationPromptView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let prompt: StateMachineEventCreationPrompt
+    let existingEventNames: [String]
+
+    @State private var nameDraft: String
+    @State private var propertyDrafts: [EditorPropertyDraft]
+
+    init(
+        prompt: StateMachineEventCreationPrompt,
+        existingEventNames: [String]
+    ) {
+        self.prompt = prompt
+        self.existingEventNames = existingEventNames
+        _nameDraft = State(initialValue: prompt.suggestedName)
+        _propertyDrafts = State(initialValue: [])
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SwiftMachineShellMetrics.cardSpacing) {
+            Label("New Event", systemImage: "bolt.horizontal.circle")
+                .font(.subheadline.weight(.semibold))
+
+            TextField("Event name", text: $nameDraft)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(createEvent)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    propertyDrafts.append(.init())
+                } label: {
+                    Label("Add Property", systemImage: "plus.circle")
+                        .frame(maxWidth: .infinity)
+                }
+
+                if propertyDrafts.isEmpty {
+                    Label("No payload properties yet. Add one if this event should carry typed data.", systemImage: "rectangle.stack.badge.plus")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach($propertyDrafts) { $propertyDraft in
+                            EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                                removeProperty(propertyDraft.id)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    store.send(.cancelEventCreation)
+                }
+
+                Spacer(minLength: 12)
+
+                Button("Create Event", systemImage: "checkmark.circle", action: createEvent)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canCreate)
+            }
+        }
+        .padding(SwiftMachineShellMetrics.cardPadding)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private var trimmedName: String {
+        nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedExistingEventNames: Set<String> {
+        Set(
+            existingEventNames.map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        )
+    }
+
+    private var propertyDefinitions: [PropertyDefinition] {
+        propertyDrafts.propertyDefinitions
+    }
+
+    private var validationMessage: String? {
+        if trimmedName.isEmpty {
+            return "The new event needs a name."
+        }
+
+        if normalizedExistingEventNames.contains(trimmedName) {
+            return "Event names must stay unique within the machine."
+        }
+
+        return propertyDrafts.validationMessage(
+            emptyNameMessage: "Each property row needs a name before the event can be created.",
+            duplicateNameMessage: "Property names must be unique within an event."
+        )
+    }
+
+    private var canCreate: Bool {
+        validationMessage == nil
+    }
+
+    private func removeProperty(_ id: String) {
+        propertyDrafts.removeAll { $0.id == id }
+    }
+
+    private func createEvent() {
+        guard canCreate else {
+            return
+        }
+
+        store.send(
+            .confirmEventCreation(
+                name: nameDraft,
+                properties: propertyDefinitions
+            )
+        )
+    }
+}
+
 private struct StateCreationPropertyDraft: Identifiable, Equatable {
     let id: String
     var name: String
@@ -525,6 +723,69 @@ private struct StateCreationPropertyControlColumn<Content: View>: View {
 
             content
         }
+    }
+}
+
+private struct PaletteLibraryCard: View {
+    let symbol: String
+    let symbolColor: Color
+    let title: String
+    let subtitle: String
+    var isSelected = false
+    var isDeleteEnabled = true
+    var deleteHelp = "Delete item"
+    let onSelect: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button(action: onSelect) {
+                HStack(spacing: 10) {
+                    Image(systemName: symbol)
+                        .foregroundStyle(symbolColor)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.body.weight(.semibold))
+
+                        Text(subtitle)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .padding(.trailing, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(cardFill)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(cardStroke, lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(isDeleteEnabled ? Color.red : .secondary)
+                    .padding(10)
+            }
+            .buttonStyle(.plain)
+            .disabled(!isDeleteEnabled)
+            .help(deleteHelp)
+        }
+    }
+
+    private var cardFill: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.04))
+    }
+
+    private var cardStroke: Color {
+        isSelected ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08)
     }
 }
 

@@ -52,7 +52,7 @@ struct SwiftMachineInspectorView: View {
             Label("Inspector", systemImage: "sidebar.right")
                 .font(.title2.weight(.semibold))
 
-            Text("The right panel follows the selected state or transition and summarizes the current graph semantics.")
+            Text("The right panel follows the selected state, event, or transition and summarizes the current graph semantics.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -65,6 +65,13 @@ struct SwiftMachineInspectorView: View {
         case .state(let stateID):
             if let state = editor.document.definition.states.first(where: { $0.id == stateID }) {
                 stateInspector(state: state, editor: editor)
+            } else {
+                emptySelectionInspector(editor: editor)
+            }
+
+        case .event(let eventID):
+            if let event = editor.document.definition.events.first(where: { $0.id == eventID }) {
+                eventInspector(event: event, editor: editor)
             } else {
                 emptySelectionInspector(editor: editor)
             }
@@ -112,6 +119,39 @@ struct SwiftMachineInspectorView: View {
         }
     }
 
+    private func eventInspector(
+        event: EventDefinition,
+        editor: StateMachineEditorSession
+    ) -> some View {
+        let definition = editor.document.definition
+        let transitionCount = definition.transitions.filter { $0.eventID == event.id }.count
+
+        return VStack(alignment: .leading, spacing: SwiftMachineShellMetrics.panelSpacing) {
+            EditorPanelSection(
+                title: "Selected Event",
+                description: "Event cards represent reusable machine-wide inputs. Editing an event here updates every transition that binds to it."
+            ) {
+                EventTitleEditorView(
+                    event: event,
+                    siblingNames: definition.events
+                        .filter { $0.id != event.id }
+                        .map(\.name)
+                )
+                .id("event-title-\(event.id)")
+
+                EditorBadge(
+                    text: "\(transitionCount) transition\(transitionCount == 1 ? "" : "s")",
+                    tint: .orange
+                )
+
+                Divider()
+
+                EventPropertiesEditorView(event: event)
+                    .id("event-properties-\(event.id)")
+            }
+        }
+    }
+
     private func transitionInspector(
         transition: TransitionDefinition,
         editor: StateMachineEditorSession
@@ -121,13 +161,23 @@ struct SwiftMachineInspectorView: View {
         return VStack(alignment: .leading, spacing: SwiftMachineShellMetrics.panelSpacing) {
             EditorPanelSection(
                 title: "Selected Transition",
-                description: "Transitions respond to an event and can attach guard and effect references."
+                description: "Transitions respond to an event, describe how the target state is created, and can attach guard and effect references."
             ) {
                 TransitionEventEditorView(
                     transition: transition,
                     events: definition.events
                 )
                 .id("event-\(transition.id)")
+
+                Divider()
+
+                TransitionTargetStateCreationEditorSectionView(
+                    transition: transition,
+                    sourceState: definition.states.first(where: { $0.id == transition.sourceStateID }),
+                    targetState: definition.states.first(where: { $0.id == transition.targetStateID }),
+                    event: definition.events.first(where: { $0.id == transition.eventID })
+                )
+                .id("target-state-creation-\(transition.id)")
 
                 Divider()
 
@@ -166,6 +216,10 @@ struct SwiftMachineInspectorView: View {
                 title: "How to Use the Graph",
                 description: "The shell is diagram-first, so most editing begins on the canvas instead of in a form."
             ) {
+                Label("Select a state or event card in the palette to inspect its reusable payload.", systemImage: "sidebar.left")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
                 Label("Drag a state card to place it on the graph.", systemImage: "hand.draw")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -262,7 +316,23 @@ private struct TransitionEventEditorView: View {
     let transition: TransitionDefinition
     let events: [EventDefinition]
 
+    @State private var currentEventPropertyDrafts: [EditorPropertyDraft]
     @State private var newEventName = ""
+    @State private var newEventPropertyDrafts: [EditorPropertyDraft] = []
+
+    init(
+        transition: TransitionDefinition,
+        events: [EventDefinition]
+    ) {
+        self.transition = transition
+        self.events = events
+        _currentEventPropertyDrafts = State(
+            initialValue: events
+                .first(where: { $0.id == transition.eventID })?
+                .properties
+                .map(EditorPropertyDraft.init(property:)) ?? []
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -291,6 +361,51 @@ private struct TransitionEventEditorView: View {
             }
 
             TransitionEditorCard {
+                Label("Event Payload", systemImage: "tray.full")
+                    .font(.subheadline.weight(.semibold))
+
+                Text("Event payload is machine-wide. Editing these properties updates every transition that uses \(currentEvent?.name ?? "this event").")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if currentEventPropertyDrafts.isEmpty {
+                    Label("No payload properties yet. Add one to attach typed data to this event.", systemImage: "rectangle.stack.badge.plus")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach($currentEventPropertyDrafts) { $propertyDraft in
+                            EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                                removeCurrentEventProperty(propertyDraft.id)
+                            }
+                        }
+                    }
+                }
+
+                Button("Add Property", systemImage: "plus.circle") {
+                    currentEventPropertyDrafts.append(.init())
+                }
+
+                if let currentEventValidationMessage {
+                    Label(currentEventValidationMessage, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
+
+                HStack {
+                    Button("Reset", action: resetCurrentEventDrafts)
+                        .disabled(!isCurrentEventDirty)
+
+                    Spacer(minLength: 12)
+
+                    Button("Apply Properties", action: applyCurrentEventProperties)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canApplyCurrentEventProperties)
+                }
+            }
+
+            TransitionEditorCard {
                 Label("Create and Assign", systemImage: "bolt.badge.clock")
                     .font(.subheadline.weight(.semibold))
 
@@ -298,8 +413,26 @@ private struct TransitionEventEditorView: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(createEvent)
 
-                if let validationMessage {
-                    Label(validationMessage, systemImage: "exclamationmark.triangle")
+                if newEventPropertyDrafts.isEmpty {
+                    Label("No payload properties yet. Add one if the new event should carry typed data.", systemImage: "rectangle.stack.badge.plus")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach($newEventPropertyDrafts) { $propertyDraft in
+                            EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                                removeNewEventProperty(propertyDraft.id)
+                            }
+                        }
+                    }
+                }
+
+                Button("Add Property", systemImage: "plus.circle") {
+                    newEventPropertyDrafts.append(.init())
+                }
+
+                if let newEventValidationMessage {
+                    Label(newEventValidationMessage, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundStyle(.orange)
                 }
@@ -313,6 +446,25 @@ private struct TransitionEventEditorView: View {
                 }
             }
         }
+        .onAppear(perform: resetCurrentEventDrafts)
+        .onChange(of: transition.eventID) { _, _ in
+            resetCurrentEventDrafts()
+        }
+        .onChange(of: currentEvent?.properties) { _, _ in
+            resetCurrentEventDrafts()
+        }
+    }
+
+    private var currentEvent: EventDefinition? {
+        events.first(where: { $0.id == transition.eventID })
+    }
+
+    private var currentEventProperties: [PropertyDefinition] {
+        currentEventPropertyDrafts.propertyDefinitions
+    }
+
+    private var newEventProperties: [PropertyDefinition] {
+        newEventPropertyDrafts.propertyDefinitions
     }
 
     private var trimmedNewEventName: String {
@@ -327,13 +479,31 @@ private struct TransitionEventEditorView: View {
         )
     }
 
-    private var canCreate: Bool {
-        validationMessage == nil && !trimmedNewEventName.isEmpty
+    private var isCurrentEventDirty: Bool {
+        currentEventProperties != (currentEvent?.properties ?? [])
     }
 
-    private var validationMessage: String? {
+    private var canApplyCurrentEventProperties: Bool {
+        currentEventValidationMessage == nil && isCurrentEventDirty
+    }
+
+    private var canCreate: Bool {
+        newEventValidationMessage == nil && !trimmedNewEventName.isEmpty
+    }
+
+    private var currentEventValidationMessage: String? {
+        currentEventPropertyDrafts.validationMessage(
+            emptyNameMessage: "Each property row needs a name before the event can be updated.",
+            duplicateNameMessage: "Property names must be unique within an event."
+        )
+    }
+
+    private var newEventValidationMessage: String? {
         guard !newEventName.isEmpty else {
-            return nil
+            return newEventPropertyDrafts.validationMessage(
+                emptyNameMessage: "Each property row needs a name before the event can be created.",
+                duplicateNameMessage: "Property names must be unique within an event."
+            )
         }
 
         if trimmedNewEventName.isEmpty {
@@ -344,7 +514,36 @@ private struct TransitionEventEditorView: View {
             return "Event names must stay unique within the machine."
         }
 
-        return nil
+        return newEventPropertyDrafts.validationMessage(
+            emptyNameMessage: "Each property row needs a name before the event can be created.",
+            duplicateNameMessage: "Property names must be unique within an event."
+        )
+    }
+
+    private func removeCurrentEventProperty(_ id: String) {
+        currentEventPropertyDrafts.removeAll { $0.id == id }
+    }
+
+    private func removeNewEventProperty(_ id: String) {
+        newEventPropertyDrafts.removeAll { $0.id == id }
+    }
+
+    private func applyCurrentEventProperties() {
+        guard canApplyCurrentEventProperties,
+              let currentEvent else {
+            return
+        }
+
+        store.send(
+            .updateEventProperties(
+                eventID: currentEvent.id,
+                properties: currentEventProperties
+            )
+        )
+    }
+
+    private func resetCurrentEventDrafts() {
+        currentEventPropertyDrafts = currentEvent?.properties.map(EditorPropertyDraft.init(property:)) ?? []
     }
 
     private func createEvent() {
@@ -355,10 +554,12 @@ private struct TransitionEventEditorView: View {
         store.send(
             .assignNewEventToTransition(
                 transitionID: transition.id,
-                name: newEventName
+                name: newEventName,
+                properties: newEventProperties
             )
         )
         newEventName = ""
+        newEventPropertyDrafts = []
     }
 }
 
@@ -377,6 +578,123 @@ private struct TransitionPickerField<Content: View>: View {
     }
 }
 
+private struct TransitionTargetStateCreationEditorSectionView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let transition: TransitionDefinition
+    let sourceState: StateDefinition?
+    let targetState: StateDefinition?
+    let event: EventDefinition?
+
+    @State private var draft: TransitionTargetStateCreationDraft
+
+    init(
+        transition: TransitionDefinition,
+        sourceState: StateDefinition?,
+        targetState: StateDefinition?,
+        event: EventDefinition?
+    ) {
+        self.transition = transition
+        self.sourceState = sourceState
+        self.targetState = targetState
+        self.event = event
+        _draft = State(
+            initialValue: TransitionTargetStateCreationDraft(
+                existingCreation: transition.targetStateCreation,
+                sourceProperties: sourceState?.properties ?? [],
+                eventProperties: event?.properties ?? [],
+                targetProperties: targetState?.properties ?? []
+            )
+        )
+    }
+
+    var body: some View {
+        TransitionEditorCard {
+            Label("Target State Creation", systemImage: "arrowshape.right.circle")
+                .font(.subheadline.weight(.semibold))
+
+            if let sourceState,
+               let targetState,
+               let event {
+                TransitionTargetStateCreationEditorView(
+                    sourceStateName: sourceState.name,
+                    sourceProperties: sourceState.properties,
+                    eventName: event.name,
+                    eventProperties: event.properties,
+                    targetStateName: targetState.name,
+                    targetProperties: targetState.properties,
+                    draft: $draft
+                )
+
+                HStack {
+                    Button("Reset", action: resetDraft)
+                        .disabled(!isDirty)
+
+                    Spacer(minLength: 12)
+
+                    Button("Apply Mapping", action: apply)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canApply)
+                }
+            } else {
+                Label("The transition route is incomplete, so the target-state mapping cannot be edited yet.", systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear(perform: resetDraft)
+        .onChange(of: contextSignature) { _, _ in
+            resetDraft()
+        }
+    }
+
+    private var canApply: Bool {
+        draft.validationMessage == nil && isDirty
+    }
+
+    private var isDirty: Bool {
+        draft.targetStateCreation != transition.targetStateCreation
+    }
+
+    private var contextSignature: TransitionTargetStateCreationEditorContextSignature {
+        TransitionTargetStateCreationEditorContextSignature(
+            sourceProperties: sourceState?.properties ?? [],
+            eventProperties: event?.properties ?? [],
+            targetProperties: targetState?.properties ?? [],
+            targetStateCreation: transition.targetStateCreation
+        )
+    }
+
+    private func resetDraft() {
+        draft = TransitionTargetStateCreationDraft(
+            existingCreation: transition.targetStateCreation,
+            sourceProperties: sourceState?.properties ?? [],
+            eventProperties: event?.properties ?? [],
+            targetProperties: targetState?.properties ?? []
+        )
+    }
+
+    private func apply() {
+        guard canApply else {
+            return
+        }
+
+        store.send(
+            .updateTransitionTargetStateCreation(
+                transitionID: transition.id,
+                targetStateCreation: draft.targetStateCreation
+            )
+        )
+    }
+}
+
+private struct TransitionTargetStateCreationEditorContextSignature: Equatable {
+    let sourceProperties: [PropertyDefinition]
+    let eventProperties: [PropertyDefinition]
+    let targetProperties: [PropertyDefinition]
+    let targetStateCreation: TransitionTargetStateCreation
+}
+
 private struct TransitionGuardEditorView: View {
     @Environment(SwiftMachineStore.self) private var store
 
@@ -384,31 +702,60 @@ private struct TransitionGuardEditorView: View {
     let reusableGuards: [ReusableGuardOption]
 
     @State private var selectedReusableGuardID = ""
-    @State private var guardNameDraft = ""
-    @State private var guardDescriptionDraft = ""
+    @State private var guardNameDraft: String
+    @State private var guardDescriptionDraft: String
+
+    init(
+        transition: TransitionDefinition,
+        reusableGuards: [ReusableGuardOption]
+    ) {
+        self.transition = transition
+        self.reusableGuards = reusableGuards
+        _guardNameDraft = State(initialValue: transition.guard?.name ?? "")
+        _guardDescriptionDraft = State(initialValue: transition.guard?.description ?? "")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             TransitionPickerField(title: "Current Guard") {
-                if let guardReference = transition.guard {
-                    TransitionAttachedReferenceCard(
-                        title: guardReference.name,
-                        description: guardReference.description,
-                        symbol: "checkmark.shield",
-                        tint: .green,
-                        removeSymbol: "trash",
-                        removeLabel: "Remove Guard"
-                    ) {
-                        store.send(
-                            .removeGuardFromTransition(
-                                transitionID: transition.id
-                            )
-                        )
+                TransitionEditorCard {
+                    currentGuardSummary
+
+                    Divider()
+
+                    Label(
+                        transition.guard == nil ? "Create Guard" : "Edit Details",
+                        systemImage: transition.guard == nil ? "plus.rectangle.on.rectangle" : "square.and.pencil"
+                    )
+                    .font(.subheadline.weight(.semibold))
+
+                    TextField("Guard name", text: $guardNameDraft)
+                        .textFieldStyle(.roundedBorder)
+
+                    TextField("Description (optional)", text: $guardDescriptionDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(applyDraftGuard)
+
+                    if let validationMessage {
+                        Label(validationMessage, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
                     }
-                } else {
-                    Label("No guard attached yet.", systemImage: "checkmark.shield")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Button("Reset", action: resetDraft)
+                            .disabled(!isDirty)
+
+                        Spacer(minLength: 12)
+
+                        Button(
+                            transition.guard == nil ? "Add Guard" : "Save Guard",
+                            systemImage: "checkmark.circle",
+                            action: applyDraftGuard
+                        )
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canApplyDraftGuard)
+                    }
                 }
             }
 
@@ -451,38 +798,57 @@ private struct TransitionGuardEditorView: View {
                 }
             }
 
-            TransitionEditorCard {
-                Label(
-                    transition.guard == nil ? "Create Guard" : "Replace Guard",
-                    systemImage: "plus.rectangle.on.rectangle"
-                )
-                .font(.subheadline.weight(.semibold))
+        }
+        .onAppear(perform: resetDraft)
+        .onChange(of: transition.guard) { _, _ in
+            resetDraft()
+        }
+    }
 
-                TextField("Guard name", text: $guardNameDraft)
-                    .textFieldStyle(.roundedBorder)
+    @ViewBuilder
+    private var currentGuardSummary: some View {
+        if let guardReference = transition.guard {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "checkmark.shield")
+                    .font(.title3)
+                    .foregroundStyle(.green)
+                    .frame(width: 22)
 
-                TextField("Description (optional)", text: $guardDescriptionDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(applyDraftGuard)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Attached Guard")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
 
-                if let validationMessage {
-                    Label(validationMessage, systemImage: "exclamationmark.triangle")
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
+                    Text(guardReference.name)
+                        .font(.body.weight(.semibold))
+
+                    if let description = guardReference.description, !description.isEmpty {
+                        Text(description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
-                HStack {
-                    Spacer(minLength: 12)
+                Spacer(minLength: 8)
 
-                    Button(
-                        transition.guard == nil ? "Add Guard" : "Apply Guard",
-                        systemImage: "checkmark.circle",
-                        action: applyDraftGuard
+                Button(role: .destructive) {
+                    store.send(
+                        .removeGuardFromTransition(
+                            transitionID: transition.id
+                        )
                     )
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canApplyDraftGuard)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.body.weight(.semibold))
                 }
+                .buttonStyle(.plain)
+                .help("Remove Guard")
             }
+        } else {
+            Label("No guard attached yet. Create one below.", systemImage: "checkmark.shield")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -505,6 +871,11 @@ private struct TransitionGuardEditorView: View {
         )
     }
 
+    private var isDirty: Bool {
+        trimmedGuardName != (transition.guard?.name ?? "")
+            || trimmedGuardDescription != (transition.guard?.description ?? "")
+    }
+
     private var canReuseSelectedGuard: Bool {
         guard let selectedReusableGuard else {
             return false
@@ -514,20 +885,16 @@ private struct TransitionGuardEditorView: View {
     }
 
     private var canApplyDraftGuard: Bool {
-        validationMessage == nil && !trimmedGuardName.isEmpty
+        validationMessage == nil && !trimmedGuardName.isEmpty && isDirty
     }
 
     private var validationMessage: String? {
-        guard !guardNameDraft.isEmpty || !guardDescriptionDraft.isEmpty else {
+        guard isDirty else {
             return nil
         }
 
         if trimmedGuardName.isEmpty {
             return "The guard needs a name."
-        }
-
-        if draftedGuard == transition.guard {
-            return "This guard is already attached to the transition."
         }
 
         return nil
@@ -557,8 +924,11 @@ private struct TransitionGuardEditorView: View {
                 guardReference: draftedGuard
             )
         )
-        guardNameDraft = ""
-        guardDescriptionDraft = ""
+    }
+
+    private func resetDraft() {
+        guardNameDraft = transition.guard?.name ?? ""
+        guardDescriptionDraft = transition.guard?.description ?? ""
     }
 }
 
@@ -582,21 +952,14 @@ private struct TransitionEffectsEditorView: View {
                 } else {
                     VStack(spacing: 10) {
                         ForEach(Array(transition.effects.enumerated()), id: \.offset) { entry in
-                            TransitionAttachedReferenceCard(
-                                title: entry.element.name,
-                                description: entry.element.description,
-                                symbol: "sparkles",
-                                tint: .orange,
-                                removeSymbol: "minus.circle.fill",
-                                removeLabel: "Remove Effect"
-                            ) {
-                                store.send(
-                                    .removeEffectFromTransition(
-                                        transitionID: transition.id,
-                                        effectIndex: entry.offset
-                                    )
-                                )
-                            }
+                            AttachedTransitionEffectEditorView(
+                                transitionID: transition.id,
+                                effectIndex: entry.offset,
+                                effect: entry.element,
+                                siblingEffects: transition.effects.enumerated().compactMap { offset, effect in
+                                    offset == entry.offset ? nil : effect
+                                }
+                            )
                         }
                     }
                 }
@@ -632,7 +995,7 @@ private struct TransitionEffectsEditorView: View {
                     HStack {
                         Spacer(minLength: 12)
 
-                        Button("Add Effect", systemImage: "plus.circle") {
+                        Button("Reuse Effect", systemImage: "plus.circle") {
                             reuseSelectedEffect()
                         }
                         .buttonStyle(.bordered)
@@ -642,7 +1005,7 @@ private struct TransitionEffectsEditorView: View {
             }
 
             TransitionEditorCard {
-                Label("Create Effect", systemImage: "plus.rectangle.on.folder")
+                Label("Create New Effect", systemImage: "plus.rectangle.on.folder")
                     .font(.subheadline.weight(.semibold))
 
                 TextField("Effect name", text: $effectNameDraft)
@@ -689,7 +1052,11 @@ private struct TransitionEffectsEditorView: View {
     }
 
     private var canReuseSelectedEffect: Bool {
-        selectedReusableEffect != nil
+        guard let selectedReusableEffect else {
+            return false
+        }
+
+        return !transition.effects.contains(selectedReusableEffect.reference)
     }
 
     private var canAddDraftEffect: Bool {
@@ -738,6 +1105,179 @@ private struct TransitionEffectsEditorView: View {
         )
         effectNameDraft = ""
         effectDescriptionDraft = ""
+    }
+}
+
+private struct AttachedTransitionEffectEditorView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let transitionID: String
+    let effectIndex: Int
+    let effect: EffectReference
+    let siblingEffects: [EffectReference]
+
+    @State private var effectNameDraft: String
+    @State private var effectDescriptionDraft: String
+
+    init(
+        transitionID: String,
+        effectIndex: Int,
+        effect: EffectReference,
+        siblingEffects: [EffectReference]
+    ) {
+        self.transitionID = transitionID
+        self.effectIndex = effectIndex
+        self.effect = effect
+        self.siblingEffects = siblingEffects
+        _effectNameDraft = State(initialValue: effect.name)
+        _effectDescriptionDraft = State(initialValue: effect.description ?? "")
+    }
+
+    var body: some View {
+        TransitionEditorCard {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Attached Effect")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(effect.name)
+                        .font(.body.weight(.semibold))
+
+                    if let description = effect.description, !description.isEmpty {
+                        Text(description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Button(role: .destructive) {
+                    store.send(
+                        .removeEffectFromTransition(
+                            transitionID: transitionID,
+                            effectIndex: effectIndex
+                        )
+                    )
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.body.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .help("Remove Effect")
+            }
+
+            Divider()
+
+            Label("Edit Details", systemImage: "square.and.pencil")
+                .font(.subheadline.weight(.semibold))
+
+            TextField("Effect name", text: $effectNameDraft)
+                .textFieldStyle(.roundedBorder)
+
+            TextField("Description (optional)", text: $effectDescriptionDraft)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(saveEffect)
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Reset", action: resetDraft)
+                    .disabled(!isDirty)
+
+                Spacer(minLength: 12)
+
+                Button("Save Effect", systemImage: "checkmark.circle", action: saveEffect)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSave)
+            }
+        }
+        .onAppear(perform: resetDraft)
+        .onChange(of: effect) { _, _ in
+            resetDraft()
+        }
+    }
+
+    private var trimmedEffectName: String {
+        effectNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedEffectDescription: String {
+        effectDescriptionDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var draftedEffect: EffectReference {
+        EffectReference(
+            name: trimmedEffectName,
+            description: trimmedEffectDescription.isEmpty ? nil : trimmedEffectDescription
+        )
+    }
+
+    private var isDirty: Bool {
+        trimmedEffectName != effect.name
+            || trimmedEffectDescription != (effect.description ?? "")
+    }
+
+    private var canSave: Bool {
+        validationMessage == nil && !trimmedEffectName.isEmpty && isDirty
+    }
+
+    private var validationMessage: String? {
+        guard isDirty else {
+            return nil
+        }
+
+        if trimmedEffectName.isEmpty {
+            return "The effect needs a name."
+        }
+
+        if normalizedSiblingEffectSignatures.contains(effectSignature(for: draftedEffect)) {
+            return "This effect is already attached to the transition."
+        }
+
+        return nil
+    }
+
+    private var normalizedSiblingEffectSignatures: Set<String> {
+        Set(siblingEffects.map(effectSignature(for:)))
+    }
+
+    private func effectSignature(for effect: EffectReference) -> String {
+        let trimmedName = effect.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDescription = effect.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return [trimmedName, trimmedDescription?.isEmpty == true ? "" : (trimmedDescription ?? "")]
+            .joined(separator: "|")
+    }
+
+    private func saveEffect() {
+        guard canSave else {
+            return
+        }
+
+        store.send(
+            .updateEffectInTransition(
+                transitionID: transitionID,
+                effectIndex: effectIndex,
+                effect: draftedEffect
+            )
+        )
+    }
+
+    private func resetDraft() {
+        effectNameDraft = effect.name
+        effectDescriptionDraft = effect.description ?? ""
     }
 }
 
@@ -948,17 +1488,217 @@ private struct StateTitleEditorView: View {
     }
 }
 
+private struct EventTitleEditorView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let event: EventDefinition
+    let siblingNames: [String]
+
+    @State private var nameDraft: String
+
+    init(event: EventDefinition, siblingNames: [String]) {
+        self.event = event
+        self.siblingNames = siblingNames
+        _nameDraft = State(initialValue: event.name)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Event Title", systemImage: "character.cursor.ibeam")
+                .font(.subheadline.weight(.semibold))
+
+            TextField("Event name", text: $nameDraft)
+                .textFieldStyle(.roundedBorder)
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Reset") {
+                    nameDraft = event.name
+                }
+                .disabled(!isDirty)
+
+                Spacer(minLength: 12)
+
+                Button("Apply Title", action: apply)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canApply)
+            }
+        }
+    }
+
+    private var normalizedSiblingNames: Set<String> {
+        Set(
+            siblingNames.map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        )
+    }
+
+    private var trimmedName: String {
+        nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isDirty: Bool {
+        trimmedName != event.name
+    }
+
+    private var canApply: Bool {
+        validationMessage == nil && isDirty
+    }
+
+    private var validationMessage: String? {
+        if trimmedName.isEmpty {
+            return "The event title cannot be empty."
+        }
+
+        if normalizedSiblingNames.contains(trimmedName) {
+            return "Event names must stay unique within the machine."
+        }
+
+        return nil
+    }
+
+    private func apply() {
+        guard canApply else {
+            return
+        }
+
+        store.send(
+            .updateEventName(
+                eventID: event.id,
+                name: nameDraft
+            )
+        )
+    }
+}
+
+private struct EventPropertiesEditorView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let event: EventDefinition
+
+    @State private var propertyDrafts: [EditorPropertyDraft]
+
+    init(event: EventDefinition) {
+        self.event = event
+        _propertyDrafts = State(
+            initialValue: event.properties.map(EditorPropertyDraft.init(property:))
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Payload Properties")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("Add, rename, or retune the selected event's payload fields. Changes propagate to every transition that uses this event.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Button("Add Property", systemImage: "plus.circle") {
+                    propertyDrafts.append(.init())
+                }
+            }
+
+            if propertyDrafts.isEmpty {
+                Label("No payload properties yet. Add one to attach typed data to this event.", systemImage: "rectangle.stack.badge.plus")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach($propertyDrafts) { $propertyDraft in
+                        EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                            removeProperty(propertyDraft.id)
+                        }
+                    }
+                }
+            }
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Reset", action: resetDrafts)
+                    .disabled(!isDirty)
+
+                Spacer(minLength: 12)
+
+                Button("Apply Properties", action: apply)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canApply)
+            }
+        }
+        .onChange(of: event.properties) { _, _ in
+            resetDrafts()
+        }
+    }
+
+    private var canApply: Bool {
+        validationMessage == nil && isDirty
+    }
+
+    private var isDirty: Bool {
+        propertyDefinitions != event.properties
+    }
+
+    private var validationMessage: String? {
+        propertyDrafts.validationMessage(
+            emptyNameMessage: "Each property row needs a name before the event can be updated.",
+            duplicateNameMessage: "Property names must be unique within an event."
+        )
+    }
+
+    private var propertyDefinitions: [PropertyDefinition] {
+        propertyDrafts.propertyDefinitions
+    }
+
+    private func removeProperty(_ id: String) {
+        propertyDrafts.removeAll { $0.id == id }
+    }
+
+    private func resetDrafts() {
+        propertyDrafts = event.properties.map(EditorPropertyDraft.init(property:))
+    }
+
+    private func apply() {
+        guard canApply else {
+            return
+        }
+
+        store.send(
+            .updateEventProperties(
+                eventID: event.id,
+                properties: propertyDefinitions
+            )
+        )
+    }
+}
+
 private struct StatePropertiesEditorView: View {
     @Environment(SwiftMachineStore.self) private var store
 
     let state: StateDefinition
 
-    @State private var propertyDrafts: [StatePropertyDraft]
+    @State private var propertyDrafts: [EditorPropertyDraft]
 
     init(state: StateDefinition) {
         self.state = state
         _propertyDrafts = State(
-            initialValue: state.properties.map(StatePropertyDraft.init(property:))
+            initialValue: state.properties.map(EditorPropertyDraft.init(property:))
         )
     }
 
@@ -989,7 +1729,7 @@ private struct StatePropertiesEditorView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach($propertyDrafts) { $propertyDraft in
-                        StatePropertyDraftRowView(propertyDraft: $propertyDraft) {
+                        EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
                             removeProperty(propertyDraft.id)
                         }
                     }
@@ -1004,7 +1744,7 @@ private struct StatePropertiesEditorView: View {
 
             HStack {
                 Button("Reset") {
-                    propertyDrafts = state.properties.map(StatePropertyDraft.init(property:))
+                    propertyDrafts = state.properties.map(EditorPropertyDraft.init(property:))
                 }
                 .disabled(!isDirty)
 
@@ -1026,27 +1766,14 @@ private struct StatePropertiesEditorView: View {
     }
 
     private var validationMessage: String? {
-        let trimmedPropertyNames = propertyDrafts.map(\.trimmedName)
-
-        if trimmedPropertyNames.contains(where: \.isEmpty) {
-            return "Each property row needs a name before the state can be updated."
-        }
-
-        if Set(trimmedPropertyNames).count != trimmedPropertyNames.count {
-            return "Property names must be unique within a state."
-        }
-
-        if let defaultValueValidationMessage = propertyDrafts
-            .compactMap(\.defaultValueValidationMessage)
-            .first {
-            return defaultValueValidationMessage
-        }
-
-        return nil
+        propertyDrafts.validationMessage(
+            emptyNameMessage: "Each property row needs a name before the state can be updated.",
+            duplicateNameMessage: "Property names must be unique within a state."
+        )
     }
 
     private var propertyDefinitions: [PropertyDefinition] {
-        propertyDrafts.map(\.propertyDefinition)
+        propertyDrafts.propertyDefinitions
     }
 
     private func removeProperty(_ id: String) {
@@ -1064,131 +1791,6 @@ private struct StatePropertiesEditorView: View {
                 properties: propertyDefinitions
             )
         )
-    }
-}
-
-private struct StatePropertyDraft: Identifiable, Equatable {
-    let id: String
-    var name: String
-    var type: PropertyType
-    var isOptional: Bool
-    var defaultValue: PropertyDefaultValueDraft
-
-    nonisolated init(
-        id: String = UUID().uuidString,
-        name: String = "",
-        type: PropertyType = .string,
-        isOptional: Bool = false,
-        defaultValue: PropertyDefaultValueDraft = .init()
-    ) {
-        self.id = id
-        self.name = name
-        self.type = type
-        self.isOptional = isOptional
-        self.defaultValue = defaultValue
-    }
-
-    nonisolated init(property: PropertyDefinition) {
-        self.init(
-            id: property.id,
-            name: property.name,
-            type: property.type,
-            isOptional: property.isOptional,
-            defaultValue: PropertyDefaultValueDraft(defaultValue: property.defaultValue)
-        )
-    }
-
-    var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var propertyDefinition: PropertyDefinition {
-        return PropertyDefinition(
-            id: id,
-            name: trimmedName,
-            type: type,
-            isOptional: isOptional,
-            defaultValue: defaultValue.literalValue(for: type)
-        )
-    }
-
-    var defaultValueValidationMessage: String? {
-        defaultValue.validationMessage(
-            for: type,
-            propertyName: trimmedName
-        )
-    }
-}
-
-private struct StatePropertyDraftRowView: View {
-    @Binding var propertyDraft: StatePropertyDraft
-    let remove: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Property name", text: $propertyDraft.name)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(alignment: .top, spacing: 12) {
-                StatePropertyControlColumn(title: "Type") {
-                    Picker("Type", selection: $propertyDraft.type) {
-                        ForEach(PropertyType.allCases, id: \.self) { propertyType in
-                            Text(propertyType.rawValue.capitalized)
-                                .tag(propertyType)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                StatePropertyControlColumn(title: "Optional") {
-                    Toggle("", isOn: $propertyDraft.isOptional)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-
-                Spacer(minLength: 0)
-
-                Button(role: .destructive, action: remove) {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.title3)
-                }
-                .buttonStyle(.plain)
-                .help("Remove property")
-            }
-
-            PropertyDefaultValueEditor(
-                type: propertyDraft.type,
-                draft: $propertyDraft.defaultValue
-            )
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-        }
-    }
-}
-
-private struct StatePropertyControlColumn<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-
-            content
-        }
     }
 }
 

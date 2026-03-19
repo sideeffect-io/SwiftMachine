@@ -101,6 +101,24 @@ struct SwiftMachineStateMachineTests {
         #expect(clearedEditor.selection == nil)
     }
 
+    @Test("Selecting an event updates the editor session")
+    func eventSelectionUpdatesSession() throws {
+        let editor = try makeTwoStateEditorWithEvent()
+        let eventID = try #require(editor.document.definition.events.first?.id)
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(editor: editor),
+            .selectEvent(id: eventID)
+        )
+
+        guard case .designing(let selectedEditor) = transition.state else {
+            Issue.record("Expected the editor session to remain in the designing phase.")
+            return
+        }
+
+        #expect(selectedEditor.selection == .event(id: eventID))
+    }
+
     @Test("Moving a state updates layout without mutating the semantic machine")
     func movingStateKeepsSemanticDefinitionStable() throws {
         let editor = try makeInitialEditor()
@@ -208,6 +226,63 @@ struct SwiftMachineStateMachineTests {
         #expect(updatedEditor.stateCreationPrompt == nil)
     }
 
+    @Test("Requesting a new event opens a creation prompt without mutating the definition")
+    func addEventOpensCreationPrompt() throws {
+        let editor = try makeInitialEditor()
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(editor: editor),
+            .addEvent
+        )
+
+        guard case .designing(let promptedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        #expect(promptedEditor.document.definition == editor.document.definition)
+        #expect(promptedEditor.eventCreationPrompt?.suggestedName == "Event 1")
+        #expect(promptedEditor.selection == nil)
+    }
+
+    @Test("Confirming a new event adds it without disturbing the current selection")
+    func confirmingEventCreationAddsTypedProperties() throws {
+        let editor = try makeTwoStateEditor()
+        let selectedStateID = try #require(editor.document.definition.states.last?.id)
+        let prompt = StateMachineEventCreationPrompt(suggestedName: "Event 1")
+        let properties = [
+            PropertyDefinition(name: "amount", type: .double),
+            PropertyDefinition(name: "retry", type: .boolean, defaultValue: .boolean(false))
+        ]
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(
+                editor: StateMachineEditorSession(
+                    document: editor.document,
+                    selection: .state(id: selectedStateID),
+                    eventCreationPrompt: prompt
+                )
+            ),
+            .confirmEventCreation(
+                name: "Submit",
+                properties: properties
+            )
+        )
+
+        guard case .designing(let updatedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        let createdEvent = try #require(updatedEditor.document.definition.events.last)
+
+        #expect(updatedEditor.document.definition.events.count == 1)
+        #expect(createdEvent.name == "Submit")
+        #expect(createdEvent.properties.map(\.name) == ["amount", "retry"])
+        #expect(updatedEditor.selection == .state(id: selectedStateID))
+        #expect(updatedEditor.eventCreationPrompt == nil)
+    }
+
     @Test("Updating selected state title renames the semantic state")
     func updatingStateNameChangesSelectedState() throws {
         let editor = try makeInitialEditor()
@@ -260,6 +335,106 @@ struct SwiftMachineStateMachineTests {
         #expect(updatedState.properties == updatedProperties)
     }
 
+    @Test("Updating a selected event title keeps that event selected")
+    func updatingEventNameChangesSelectedEvent() throws {
+        let editor = try makeTwoStateEditorWithEvent()
+        let eventID = try #require(editor.document.definition.events.first?.id)
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(
+                editor: StateMachineEditorSession(
+                    document: editor.document,
+                    selection: .event(id: eventID)
+                )
+            ),
+            .updateEventName(eventID: eventID, name: "Submit")
+        )
+
+        guard case .designing(let updatedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        let updatedEvent = try #require(
+            updatedEditor.document.definition.events.first(where: { $0.id == eventID })
+        )
+
+        #expect(updatedEditor.selection == .event(id: eventID))
+        #expect(updatedEvent.name == "Submit")
+    }
+
+    @Test("Deleting a selected event removes related transitions and clears selection")
+    func deletingEventRemovesTransitionsAndClearsSelection() throws {
+        let editor = try makeTwoStateEditorWithEvent()
+        let stateMachine = editor.document.definition
+        let initialStateID = stateMachine.initialStateID
+        let secondStateID = try #require(stateMachine.states.last?.id)
+        let eventID = try #require(stateMachine.events.first?.id)
+        let transitionResult = try #require(
+            editor.document.addingTransition(
+                sourceStateID: initialStateID,
+                targetStateID: secondStateID,
+                eventID: eventID
+            )
+        )
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(
+                editor: StateMachineEditorSession(
+                    document: transitionResult.document,
+                    selection: .event(id: eventID)
+                )
+            ),
+            .deleteEvent(id: eventID)
+        )
+
+        guard case .designing(let updatedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        #expect(updatedEditor.selection == nil)
+        #expect(updatedEditor.document.definition.events.isEmpty)
+        #expect(updatedEditor.document.definition.transitions.isEmpty)
+    }
+
+    @Test("Deleting the selected initial state promotes another state and clears selection")
+    func deletingStatePromotesReplacementInitialState() throws {
+        let editor = try makeTwoStateEditorWithEvent()
+        let initialStateID = editor.document.definition.initialStateID
+        let replacementStateID = try #require(
+            editor.document.definition.states.first(where: { $0.id != initialStateID })?.id
+        )
+        let eventID = try #require(editor.document.definition.events.first?.id)
+        let transitionResult = try #require(
+            editor.document.addingTransition(
+                sourceStateID: initialStateID,
+                targetStateID: replacementStateID,
+                eventID: eventID
+            )
+        )
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(
+                editor: StateMachineEditorSession(
+                    document: transitionResult.document,
+                    selection: .state(id: initialStateID)
+                )
+            ),
+            .deleteState(id: initialStateID)
+        )
+
+        guard case .designing(let updatedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        #expect(updatedEditor.selection == nil)
+        #expect(updatedEditor.document.definition.initialStateID == replacementStateID)
+        #expect(updatedEditor.document.definition.states.count == 1)
+        #expect(updatedEditor.document.definition.transitions.isEmpty)
+    }
+
     @Test("Dropping a connection on a target opens a transition prompt instead of creating a transition")
     func connectionCompletionOpensPrompt() throws {
         let editor = try makeTwoStateEditor()
@@ -309,7 +484,14 @@ struct SwiftMachineStateMachineTests {
                     transitionPrompt: prompt
                 )
             ),
-            .confirmTransitionPromptWithExistingEvent(eventID: eventID)
+            .confirmTransitionPromptWithExistingEvent(
+                eventID: eventID,
+                properties: [
+                    PropertyDefinition(name: "source", type: .string),
+                    PropertyDefinition(name: "attemptCount", type: .integer, defaultValue: .integer(1))
+                ],
+                targetStateCreation: .init()
+            )
         )
 
         guard case .designing(let updatedEditor) = transition.state else {
@@ -318,9 +500,14 @@ struct SwiftMachineStateMachineTests {
         }
 
         let createdTransition = try #require(updatedEditor.document.definition.transitions.first)
+        let updatedEvent = try #require(
+            updatedEditor.document.definition.events.first(where: { $0.id == eventID })
+        )
 
         #expect(updatedEditor.document.definition.transitions.count == 1)
         #expect(createdTransition.eventID == eventID)
+        #expect(updatedEvent.properties.map(\.name) == ["source", "attemptCount"])
+        #expect(updatedEvent.properties.map(\.type) == [.string, .integer])
         #expect(updatedEditor.document.transitionPosition(for: createdTransition.id) == prompt.anchor)
         #expect(updatedEditor.selection == .transition(id: createdTransition.id))
         #expect(updatedEditor.transitionPrompt == nil)
@@ -375,6 +562,90 @@ struct SwiftMachineStateMachineTests {
         #expect(updatedTransition.targetStateID == initialStateID)
     }
 
+    @Test("Updating selected transition target-state creation stores the semantic mapping")
+    func updatingTransitionTargetStateCreationChangesSelectedTransition() throws {
+        let machine = try #require(
+            StateMachineDefinition.makeNew(
+                name: "Checkout",
+                initialStateName: "Idle",
+                initialStateProperties: [
+                    PropertyDefinition(id: "source-amount", name: "amount", type: .double)
+                ]
+            )
+        )
+        let secondStateResult = try #require(
+            StateMachineEditorDocument.bootstrap(definition: machine).addingState(
+                named: "Loading",
+                properties: [
+                    PropertyDefinition(id: "target-amount", name: "amount", type: .double),
+                    PropertyDefinition(id: "target-is-priority", name: "isPriority", type: .boolean)
+                ]
+            )
+        )
+        let eventResult = try #require(
+            secondStateResult.document.addingEvent(
+                named: "Submit",
+                properties: [
+                    PropertyDefinition(id: "event-is-priority", name: "isPriority", type: .boolean)
+                ]
+            )
+        )
+        let targetState = try #require(
+            secondStateResult.document.definition.states.first(where: { $0.id == secondStateResult.stateID })
+        )
+        let targetAmountPropertyID = try #require(
+            targetState.properties.first(where: { $0.name == "amount" })?.id
+        )
+        let targetPriorityPropertyID = try #require(
+            targetState.properties.first(where: { $0.name == "isPriority" })?.id
+        )
+        let transitionResult = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: secondStateResult.document.definition.initialStateID,
+                targetStateID: secondStateResult.stateID,
+                eventID: eventResult.eventID
+            )
+        )
+
+        let mapping = TransitionTargetStateCreation(
+            assignments: [
+                TransitionTargetStatePropertyAssignment(
+                    targetPropertyID: targetAmountPropertyID,
+                    valueSource: .sourceStateProperty(propertyID: "source-amount")
+                ),
+                TransitionTargetStatePropertyAssignment(
+                    targetPropertyID: targetPriorityPropertyID,
+                    valueSource: .eventProperty(propertyID: "event-is-priority")
+                )
+            ]
+        )
+
+        let updated = SwiftMachineStateMachine.reduce(
+            .designing(
+                editor: StateMachineEditorSession(
+                    document: transitionResult.document,
+                    selection: .transition(id: transitionResult.transitionID)
+                )
+            ),
+            .updateTransitionTargetStateCreation(
+                transitionID: transitionResult.transitionID,
+                targetStateCreation: mapping
+            )
+        )
+
+        guard case .designing(let updatedEditor) = updated.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        let updatedTransition = try #require(
+            updatedEditor.document.definition.transitions.first(where: { $0.id == transitionResult.transitionID })
+        )
+
+        #expect(updatedEditor.selection == .transition(id: transitionResult.transitionID))
+        #expect(updatedTransition.targetStateCreation == mapping)
+    }
+
     @Test("Updating selected transition references mutates the event, guard, and effects")
     func updatingTransitionReferencesChangesSelectedTransition() throws {
         let editor = try makeTwoStateEditorWithEvent()
@@ -401,7 +672,10 @@ struct SwiftMachineStateMachineTests {
             selectedState,
             .assignNewEventToTransition(
                 transitionID: transitionResult.transitionID,
-                name: "Submit"
+                name: "Submit",
+                properties: [
+                    PropertyDefinition(name: "attemptCount", type: .integer, defaultValue: .integer(1))
+                ]
             )
         )
         let guardUpdated = SwiftMachineStateMachine.reduce(
@@ -418,8 +692,19 @@ struct SwiftMachineStateMachineTests {
                 effect: EffectReference(name: "trackSubmit")
             )
         )
-        let effectRemoved = SwiftMachineStateMachine.reduce(
+        let effectEdited = SwiftMachineStateMachine.reduce(
             effectUpdated.state,
+            .updateEffectInTransition(
+                transitionID: transitionResult.transitionID,
+                effectIndex: 0,
+                effect: EffectReference(
+                    name: "trackSubmitSuccess",
+                    description: "Sends analytics after a successful submit"
+                )
+            )
+        )
+        let effectRemoved = SwiftMachineStateMachine.reduce(
+            effectEdited.state,
             .removeEffectFromTransition(
                 transitionID: transitionResult.transitionID,
                 effectIndex: 0
@@ -443,10 +728,23 @@ struct SwiftMachineStateMachineTests {
         let createdEvent = try #require(
             updatedEditor.document.definition.events.first(where: { $0.id == updatedTransition.eventID })
         )
+        guard case .designing(let effectEditedEditor) = effectEdited.state else {
+            Issue.record("Expected the editor to stay in the designing phase after editing an effect.")
+            return
+        }
+
+        let editedEffect = try #require(
+            effectEditedEditor.document.definition.transitions
+                .first(where: { $0.id == transitionResult.transitionID })?
+                .effects
+                .first
+        )
 
         #expect(updatedEditor.selection == .transition(id: transitionResult.transitionID))
         #expect(updatedEditor.document.definition.events.count == 2)
         #expect(createdEvent.name == "Submit")
+        #expect(editedEffect.name == "trackSubmitSuccess")
+        #expect(editedEffect.description == "Sends analytics after a successful submit")
         #expect(updatedTransition.guard == nil)
         #expect(updatedTransition.effects.isEmpty)
     }
@@ -470,7 +768,13 @@ struct SwiftMachineStateMachineTests {
                     transitionPrompt: prompt
                 )
             ),
-            .confirmTransitionPromptWithNewEvent(name: "Submit")
+            .confirmTransitionPromptWithNewEvent(
+                name: "Submit",
+                properties: [
+                    PropertyDefinition(name: "attemptCount", type: .integer, defaultValue: .integer(1))
+                ],
+                targetStateCreation: .init()
+            )
         )
 
         guard case .designing(let updatedEditor) = transition.state else {
@@ -485,6 +789,9 @@ struct SwiftMachineStateMachineTests {
         #expect(definition.events.count == 1)
         #expect(definition.transitions.count == 1)
         #expect(createdEvent.name == "Submit")
+        #expect(createdEvent.properties.map(\.name) == ["attemptCount"])
+        #expect(createdEvent.properties.map(\.type) == [.integer])
+        #expect(createdEvent.properties.map(\.defaultValue) == [.integer(1)])
         #expect(createdTransition.eventID == createdEvent.id)
         #expect(updatedEditor.document.transitionPosition(for: createdTransition.id) == promptAnchor)
         #expect(updatedEditor.selection == .transition(id: createdTransition.id))
