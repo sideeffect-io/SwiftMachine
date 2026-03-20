@@ -7,9 +7,125 @@
 
 import Foundation
 
-enum PropertyType: String, Sendable, Codable, Equatable, Hashable, CaseIterable {
+enum PropertyType: Sendable, Codable, Equatable, Hashable {
     case string
     case integer
     case double
     case boolean
+    case model(typeID: String)
+
+    static let primitiveCases: [PropertyType] = [
+        .string,
+        .integer,
+        .double,
+        .boolean
+    ]
+
+    var rawValue: String {
+        switch self {
+        case .string:
+            return "string"
+        case .integer:
+            return "integer"
+        case .double:
+            return "double"
+        case .boolean:
+            return "boolean"
+        case .model(let typeID):
+            return "model:\(typeID)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .string:
+            return "String"
+        case .integer:
+            return "Integer"
+        case .double:
+            return "Double"
+        case .boolean:
+            return "Boolean"
+        case .model:
+            return "Model"
+        }
+    }
+
+    var isPrimitive: Bool {
+        switch self {
+        case .string, .integer, .double, .boolean:
+            return true
+        case .model:
+            return false
+        }
+    }
+
+    var referencedTypeID: String? {
+        guard case .model(let typeID) = self else {
+            return nil
+        }
+
+        return typeID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case typeID
+    }
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let primitiveKind = try? container.decode(String.self) {
+            switch primitiveKind {
+            case "string":
+                self = .string
+                return
+            case "integer":
+                self = .integer
+                return
+            case "double":
+                self = .double
+                return
+            case "boolean":
+                self = .boolean
+                return
+            default:
+                break
+            }
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+
+        switch kind {
+        case "string":
+            self = .string
+        case "integer":
+            self = .integer
+        case "double":
+            self = .double
+        case "boolean":
+            self = .boolean
+        case "model":
+            self = .model(typeID: try container.decode(String.self, forKey: .typeID))
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription: "Unsupported property type '\(kind)'."
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .string, .integer, .double, .boolean:
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        case .model(let typeID):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode("model", forKey: .kind)
+            try container.encode(typeID, forKey: .typeID)
+        }
+    }
 }

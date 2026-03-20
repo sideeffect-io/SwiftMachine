@@ -218,7 +218,9 @@ struct StateMachineDefinitionTests {
                             ),
                             TransitionTargetStatePropertyAssignment(
                                 targetPropertyID: "target-amount",
-                                valueSource: .eventProperty(propertyID: "event-flag")
+                                valueSource: .eventProperty(
+                                    reference: PropertyValueReference(propertyID: "event-flag")
+                                )
                             )
                         ]
                     )
@@ -237,6 +239,361 @@ struct StateMachineDefinitionTests {
             transitionID: "start-loading",
             targetPropertyID: "target-amount"
         )))
+    }
+
+    @Test("Validation accepts custom target-state creation notes")
+    func customTransitionTargetStateCreationNotesAreValid() {
+        let machine = makeMachine(
+            states: [
+                StateDefinition(id: "idle", name: "Idle"),
+                StateDefinition(
+                    id: "loading",
+                    name: "Loading",
+                    properties: [
+                        PropertyDefinition(id: "target-amount", name: "amount", type: .double)
+                    ]
+                )
+            ],
+            transitions: [
+                TransitionDefinition(
+                    id: "start-loading",
+                    sourceStateID: "idle",
+                    eventID: "begin",
+                    targetStateID: "loading",
+                    targetStateCreation: TransitionTargetStateCreation(
+                        assignments: [
+                            TransitionTargetStatePropertyAssignment(
+                                targetPropertyID: "target-amount",
+                                valueSource: .custom(comment: "Set by pricing engine before entering Loading.")
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+
+        #expect(machine.validate().isEmpty)
+    }
+
+    @Test("Reusable struct payload types validate nested field mappings")
+    func reusableStructPayloadTypesValidateNestedFieldMappings() {
+        let userTypeID = "type-user"
+        let targetUserPropertyID = "target-user"
+        let stateUserPropertyID = "state-user"
+        let eventZipPropertyID = "event-zip"
+
+        let machine = makeMachine(
+            types: [
+                PayloadTypeDefinition(
+                    id: userTypeID,
+                    name: "User",
+                    kind: .structType(fields: [
+                        PropertyDefinition(id: "field-name", name: "name", type: .string),
+                        PropertyDefinition(id: "field-zip", name: "zip", type: .integer)
+                    ])
+                )
+            ],
+            states: [
+                StateDefinition(
+                    id: "idle",
+                    name: "Idle",
+                    properties: [
+                        PropertyDefinition(
+                            id: stateUserPropertyID,
+                            name: "user",
+                            type: .model(typeID: userTypeID)
+                        )
+                    ]
+                ),
+                StateDefinition(
+                    id: "loading",
+                    name: "Loading",
+                    properties: [
+                        PropertyDefinition(
+                            id: targetUserPropertyID,
+                            name: "user",
+                            type: .model(typeID: userTypeID)
+                        )
+                    ]
+                )
+            ],
+            events: [
+                EventDefinition(
+                    id: "begin",
+                    name: "Begin",
+                    properties: [
+                        PropertyDefinition(id: eventZipPropertyID, name: "zip", type: .integer)
+                    ]
+                )
+            ],
+            transitions: [
+                TransitionDefinition(
+                    id: "start-loading",
+                    sourceStateID: "idle",
+                    eventID: "begin",
+                    targetStateID: "loading",
+                    targetStateCreation: TransitionTargetStateCreation(
+                        assignments: [
+                            TransitionTargetStatePropertyAssignment(
+                                targetPropertyID: targetUserPropertyID,
+                                valueSource: .fieldMap(fields: [
+                                    TransitionTargetStateFieldAssignment(
+                                        fieldID: "field-name",
+                                        valueSource: .sourceStateProperty(
+                                            reference: PropertyValueReference(
+                                                propertyID: stateUserPropertyID,
+                                                path: ["field-name"]
+                                            )
+                                        )
+                                    ),
+                                    TransitionTargetStateFieldAssignment(
+                                        fieldID: "field-zip",
+                                        valueSource: .eventProperty(
+                                            reference: PropertyValueReference(propertyID: eventZipPropertyID)
+                                        )
+                                    )
+                                ])
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+
+        #expect(machine.validate().isEmpty)
+    }
+
+    @Test("Whole-value complex assignments require identical referenced types")
+    func wholeValueComplexAssignmentsRequireIdenticalReferencedTypes() {
+        let sourceUserTypeID = "type-source-user"
+        let targetUserTypeID = "type-target-user"
+
+        let machine = makeMachine(
+            types: [
+                PayloadTypeDefinition(
+                    id: sourceUserTypeID,
+                    name: "SourceUser",
+                    kind: .structType(fields: [
+                        PropertyDefinition(id: "field-name", name: "name", type: .string)
+                    ])
+                ),
+                PayloadTypeDefinition(
+                    id: targetUserTypeID,
+                    name: "TargetUser",
+                    kind: .structType(fields: [
+                        PropertyDefinition(id: "field-name", name: "name", type: .string)
+                    ])
+                )
+            ],
+            states: [
+                StateDefinition(
+                    id: "idle",
+                    name: "Idle",
+                    properties: [
+                        PropertyDefinition(id: "source-user", name: "user", type: .model(typeID: sourceUserTypeID))
+                    ]
+                ),
+                StateDefinition(
+                    id: "loading",
+                    name: "Loading",
+                    properties: [
+                        PropertyDefinition(id: "target-user", name: "user", type: .model(typeID: targetUserTypeID))
+                    ]
+                )
+            ],
+            transitions: [
+                TransitionDefinition(
+                    id: "start-loading",
+                    sourceStateID: "idle",
+                    eventID: "begin",
+                    targetStateID: "loading",
+                    targetStateCreation: TransitionTargetStateCreation(
+                        assignments: [
+                            TransitionTargetStatePropertyAssignment(
+                                targetPropertyID: "target-user",
+                                valueSource: .sourceStateProperty(
+                                    reference: PropertyValueReference(propertyID: "source-user")
+                                )
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+
+        #expect(machine.validate().contains(.incompatibleTransitionTargetPropertyAssignment(
+            transitionID: "start-loading",
+            targetPropertyID: "target-user"
+        )))
+    }
+
+    @Test("Enum payload mappings validate explicit case construction")
+    func enumPayloadMappingsValidateExplicitCaseConstruction() {
+        let outcomeTypeID = "type-outcome"
+        let targetOutcomePropertyID = "target-outcome"
+
+        let machine = makeMachine(
+            types: [
+                PayloadTypeDefinition(
+                    id: outcomeTypeID,
+                    name: "Outcome",
+                    kind: .enumType(
+                        cases: [
+                            PayloadEnumCaseDefinition(id: "case-idle", name: "idle"),
+                            PayloadEnumCaseDefinition(id: "case-success", name: "success", payloadType: .string)
+                        ],
+                        defaultCaseID: "case-idle"
+                    )
+                )
+            ],
+            states: [
+                StateDefinition(id: "idle", name: "Idle"),
+                StateDefinition(
+                    id: "loading",
+                    name: "Loading",
+                    properties: [
+                        PropertyDefinition(
+                            id: targetOutcomePropertyID,
+                            name: "outcome",
+                            type: .model(typeID: outcomeTypeID)
+                        )
+                    ]
+                )
+            ],
+            events: [
+                EventDefinition(
+                    id: "begin",
+                    name: "Begin",
+                    properties: [
+                        PropertyDefinition(id: "event-message", name: "message", type: .string)
+                    ]
+                )
+            ],
+            transitions: [
+                TransitionDefinition(
+                    id: "start-loading",
+                    sourceStateID: "idle",
+                    eventID: "begin",
+                    targetStateID: "loading",
+                    targetStateCreation: TransitionTargetStateCreation(
+                        assignments: [
+                            TransitionTargetStatePropertyAssignment(
+                                targetPropertyID: targetOutcomePropertyID,
+                                valueSource: .enumCase(
+                                    caseID: "case-success",
+                                    payload: .eventProperty(
+                                        reference: PropertyValueReference(propertyID: "event-message")
+                                    )
+                                )
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+
+        #expect(machine.validate().isEmpty)
+    }
+
+    @Test("Complex property defaults validate reusable structs and enums")
+    func complexPropertyDefaultsValidateReusableStructsAndEnums() {
+        let addressTypeID = "type-address"
+        let outcomeTypeID = "type-outcome"
+
+        let machine = makeMachine(
+            types: [
+                PayloadTypeDefinition(
+                    id: addressTypeID,
+                    name: "Address",
+                    kind: .structType(fields: [
+                        PropertyDefinition(id: "field-street", name: "street", type: .string),
+                        PropertyDefinition(id: "field-zip", name: "zip", type: .integer)
+                    ])
+                ),
+                PayloadTypeDefinition(
+                    id: outcomeTypeID,
+                    name: "Outcome",
+                    kind: .enumType(
+                        cases: [
+                            PayloadEnumCaseDefinition(id: "case-idle", name: "idle"),
+                            PayloadEnumCaseDefinition(id: "case-success", name: "success", payloadType: .string)
+                        ],
+                        defaultCaseID: "case-idle"
+                    )
+                )
+            ],
+            states: [
+                StateDefinition(
+                    id: "idle",
+                    name: "Idle",
+                    properties: [
+                        PropertyDefinition(
+                            id: "state-address",
+                            name: "address",
+                            type: .model(typeID: addressTypeID),
+                            defaultValue: .structValue(fields: [
+                                PropertyDefaultFieldValue(fieldID: "field-street", value: .string("42 Rue des Fleurs")),
+                                PropertyDefaultFieldValue(fieldID: "field-zip", value: .integer(75001))
+                            ])
+                        )
+                    ]
+                ),
+                StateDefinition(id: "loading", name: "Loading")
+            ],
+            events: [
+                EventDefinition(
+                    id: "begin",
+                    name: "Begin",
+                    properties: [
+                        PropertyDefinition(
+                            id: "event-outcome",
+                            name: "outcome",
+                            type: .model(typeID: outcomeTypeID),
+                            defaultValue: .enumCase(
+                                caseID: "case-success",
+                                payload: .string("sent")
+                            )
+                        )
+                    ]
+                )
+            ]
+        )
+
+        #expect(machine.validate().isEmpty)
+    }
+
+    @Test("Recursive reusable type references are rejected")
+    func recursiveReusableTypeReferencesAreRejected() {
+        let machine = makeMachine(
+            types: [
+                PayloadTypeDefinition(
+                    id: "type-user",
+                    name: "User",
+                    kind: .structType(fields: [
+                        PropertyDefinition(
+                            id: "field-address",
+                            name: "address",
+                            type: .model(typeID: "type-address")
+                        )
+                    ])
+                ),
+                PayloadTypeDefinition(
+                    id: "type-address",
+                    name: "Address",
+                    kind: .structType(fields: [
+                        PropertyDefinition(
+                            id: "field-user",
+                            name: "user",
+                            type: .model(typeID: "type-user")
+                        )
+                    ])
+                )
+            ]
+        )
+
+        let errors = machine.validate()
+
+        #expect(errors.contains(.recursiveTypeReference(typeID: "type-user")))
     }
 
     @Test("Guarded alternatives preserve transition order")
@@ -313,6 +670,7 @@ struct StateMachineDefinitionTests {
 
 private func makeMachine(
     initialStateID: String = "idle",
+    types: [PayloadTypeDefinition] = [],
     states: [StateDefinition] = [
         StateDefinition(id: "idle", name: "Idle"),
         StateDefinition(id: "loading", name: "Loading")
@@ -326,6 +684,7 @@ private func makeMachine(
         id: "machine",
         name: "Loader",
         initialStateID: initialStateID,
+        types: types,
         states: states,
         events: events,
         transitions: transitions

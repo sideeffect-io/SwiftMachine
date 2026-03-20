@@ -12,14 +12,14 @@ struct PropertyDefinition: Sendable, Codable, Equatable, Hashable, Identifiable 
     let name: String
     let type: PropertyType
     let isOptional: Bool
-    let defaultValue: LiteralValue?
+    let defaultValue: PropertyDefaultValue?
 
     init(
         id: String = UUID().uuidString,
         name: String,
         type: PropertyType,
         isOptional: Bool = false,
-        defaultValue: LiteralValue? = nil
+        defaultValue: PropertyDefaultValue? = nil
     ) {
         self.id = id
         self.name = name

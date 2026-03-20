@@ -27,11 +27,12 @@ enum SwiftMachineStateMachine {
 
             return .init(state: .drafting(name: trimmedName), effects: [])
 
-        case (.drafting(let machineName), .setInitialState(let stateName, let properties)):
+        case (.drafting(let machineName), .setInitialState(let stateName, let properties, let types)):
             guard let stateMachine = StateMachineDefinition.makeNew(
                 name: machineName,
                 initialStateName: stateName,
-                initialStateProperties: properties
+                initialStateProperties: properties,
+                types: types
             ) else {
                 return .init(state: .drafting(name: machineName), effects: [])
             }
@@ -129,6 +130,36 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
+        case (.designing(let editor), .addStructType):
+            guard let result = editor.document.addingStructType() else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: result.document,
+                        selection: .type(id: result.typeID)
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .addEnumType):
+            guard let result = editor.document.addingEnumType() else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: result.document,
+                        selection: .type(id: result.typeID)
+                    )
+                ),
+                effects: []
+            )
+
         case (.designing(let editor), .deleteState(let stateID)):
             guard let updatedDocument = editor.document.removingState(id: stateID) else {
                 return .init(state: .designing(editor: editor), effects: [])
@@ -146,6 +177,21 @@ enum SwiftMachineStateMachine {
 
         case (.designing(let editor), .deleteEvent(let eventID)):
             guard let updatedDocument = editor.document.removingEvent(id: eventID) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: reconciledSelection(editor.selection, in: updatedDocument)
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .deleteType(let typeID)):
+            guard let updatedDocument = editor.document.removingType(id: typeID) else {
                 return .init(state: .designing(editor: editor), effects: [])
             }
 
@@ -199,6 +245,26 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
+        case (.designing(let editor), .updateTypeName(let typeID, let name)):
+            guard let updatedDocument = editor.document.renamingType(
+                id: typeID,
+                to: name
+            ) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: .type(id: typeID),
+                        connectionDraft: editor.connectionDraft,
+                        transitionPrompt: editor.transitionPrompt
+                    )
+                ),
+                effects: []
+            )
+
         case (.designing(let editor), .updateStateProperties(let stateID, let properties)):
             guard let updatedDocument = editor.document.updatingStateProperties(
                 properties,
@@ -239,6 +305,26 @@ enum SwiftMachineStateMachine {
                 effects: []
             )
 
+        case (.designing(let editor), .updateType(let typeID, let type)):
+            guard let updatedDocument = editor.document.updatingType(
+                type,
+                forTypeID: typeID
+            ) else {
+                return .init(state: .designing(editor: editor), effects: [])
+            }
+
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: updatedDocument,
+                        selection: .type(id: typeID),
+                        connectionDraft: editor.connectionDraft,
+                        transitionPrompt: editor.transitionPrompt
+                    )
+                ),
+                effects: []
+            )
+
         case (.designing(let editor), .selectState(let stateID)):
             return .init(
                 state: .designing(
@@ -256,6 +342,17 @@ enum SwiftMachineStateMachine {
                     editor: StateMachineEditorSession(
                         document: editor.document,
                         selection: .event(id: eventID)
+                    )
+                ),
+                effects: []
+            )
+
+        case (.designing(let editor), .selectType(let typeID)):
+            return .init(
+                state: .designing(
+                    editor: StateMachineEditorSession(
+                        document: editor.document,
+                        selection: .type(id: typeID)
                     )
                 ),
                 effects: []

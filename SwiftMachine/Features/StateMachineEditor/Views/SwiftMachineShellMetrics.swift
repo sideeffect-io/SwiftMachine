@@ -25,6 +25,8 @@ enum SwiftMachineShellMetrics {
     static let cardPadding: CGFloat = 16
     static let cardSpacing: CGFloat = 12
     static let cornerRadius: CGFloat = 18
+    static let paletteInlinePickerWidth: CGFloat = 92
+    static let paletteInlineControlSpacing: CGFloat = 8
 
     static let canvasInset: CGFloat = 24
     static let placeholderWidth: CGFloat = 360

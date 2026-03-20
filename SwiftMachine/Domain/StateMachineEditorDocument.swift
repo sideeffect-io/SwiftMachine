@@ -125,6 +125,14 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         definition.nextAvailableEventName()
     }
 
+    func suggestedStructTypeName() -> String {
+        definition.nextAvailableStructTypeName()
+    }
+
+    func suggestedEnumTypeName() -> String {
+        definition.nextAvailableEnumTypeName()
+    }
+
     func addingState() -> (document: StateMachineEditorDocument, stateID: String)? {
         addingState(
             named: suggestedStateName(),
@@ -261,6 +269,66 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             properties,
             forEventID: eventID
         ) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func addingStructType() -> (document: StateMachineEditorDocument, typeID: String)? {
+        guard let result = definition.addingStructType() else {
+            return nil
+        }
+
+        return (
+            document: preservingLayout(with: result.definition),
+            typeID: result.typeID
+        )
+    }
+
+    func addingEnumType() -> (document: StateMachineEditorDocument, typeID: String)? {
+        guard let result = definition.addingEnumType() else {
+            return nil
+        }
+
+        return (
+            document: preservingLayout(with: result.definition),
+            typeID: result.typeID
+        )
+    }
+
+    func renamingType(
+        id typeID: String,
+        to proposedName: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.renamingType(
+            id: typeID,
+            to: proposedName
+        ) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func updatingType(
+        _ type: PayloadTypeDefinition,
+        forTypeID typeID: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.updatingType(
+            type,
+            forTypeID: typeID
+        ) else {
+            return nil
+        }
+
+        return preservingLayout(with: updatedDefinition)
+    }
+
+    func removingType(
+        id typeID: String
+    ) -> StateMachineEditorDocument? {
+        guard let updatedDefinition = definition.removingType(id: typeID) else {
             return nil
         }
 

@@ -27,6 +27,7 @@ struct SwiftMachineToolboxView: View {
                     createSection(editor)
                     stateLibrary(editor)
                     eventLibrary(editor)
+                    typeLibrary(editor)
                 } else {
                     EditorPanelSection(
                         title: "Wizard",
@@ -75,12 +76,21 @@ struct SwiftMachineToolboxView: View {
         return eventID
     }
 
+    private var selectedTypeID: String? {
+        guard let editor,
+              case .type(let typeID) = editor.selection else {
+            return nil
+        }
+
+        return typeID
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Palette", systemImage: "shippingbox")
                 .font(.title2.weight(.semibold))
 
-            Text("The left panel owns machine-wide creation actions plus the reusable state and event libraries for the graph.")
+            Text("The left panel owns machine-wide creation actions plus the reusable state, event, and type libraries for the graph.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -108,39 +118,68 @@ struct SwiftMachineToolboxView: View {
     private func createSection(_ editor: StateMachineEditorSession) -> some View {
         EditorPanelSection(
             title: "Create Elements",
-            description: "Use the graph for topology and the palette for global machine resources."
+            description: "Use the graph for topology and this palette for shared machine resources.",
+            density: .compact
         ) {
-            ToolboxActionCard(
-                symbol: "circle.hexagongrid",
-                title: "Add State",
-                description: "Draft a new state node, author new payload properties, or reuse ones that already exist elsewhere in the machine."
-            ) {
-                store.send(.addState)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    ToolboxActionCard(
+                        symbol: "circle.hexagongrid",
+                        title: "Add State",
+                        description: "Draft a new state node and reuse payload fields already defined in the machine.",
+                        style: .inlineCompact
+                    ) {
+                        store.send(.addState)
+                    }
+
+                    ToolboxActionCard(
+                        symbol: "bolt.horizontal.circle",
+                        title: "Add Event",
+                        description: "Append a reusable event definition to the machine library.",
+                        style: .inlineCompact
+                    ) {
+                        store.send(.addEvent)
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 10) {
+                    ToolboxActionCard(
+                        symbol: "square.stack.3d.up",
+                        title: "Add Struct",
+                        description: "Create a reusable payload struct that properties can reference.",
+                        style: .inlineCompact
+                    ) {
+                        store.send(.addStructType)
+                    }
+
+                    ToolboxActionCard(
+                        symbol: "point.3.connected.trianglepath.dotted",
+                        title: "Add Enum",
+                        description: "Create a reusable payload enum with named cases.",
+                        style: .inlineCompact
+                    ) {
+                        store.send(.addEnumType)
+                    }
+                }
             }
 
             if let prompt = editor.stateCreationPrompt {
                 StateCreationPromptView(
                     prompt: prompt,
                     existingStateNames: editor.document.definition.states.map(\.name),
-                    reusableProperties: editor.document.definition.reusableStatePropertyOptions
+                    reusableProperties: editor.document.definition.reusableStatePropertyOptions,
+                    availableModelTypes: editor.document.definition.types
                 )
                 .id(prompt.suggestedName)
                 .transition(toolboxCreationPromptTransition)
                 .zIndex(1)
             }
 
-            ToolboxActionCard(
-                symbol: "bolt.horizontal.circle",
-                title: "Add Event",
-                description: "Append a reusable event definition to the machine library."
-            ) {
-                store.send(.addEvent)
-            }
-
             if let prompt = editor.eventCreationPrompt {
                 EventCreationPromptView(
                     prompt: prompt,
-                    existingEventNames: editor.document.definition.events.map(\.name)
+                    existingEventNames: editor.document.definition.events.map(\.name),
+                    availableModelTypes: editor.document.definition.types
                 )
                 .id(prompt.suggestedName)
                 .transition(toolboxCreationPromptTransition)
@@ -220,6 +259,42 @@ struct SwiftMachineToolboxView: View {
         }
     }
 
+    private func typeLibrary(_ editor: StateMachineEditorSession) -> some View {
+        let definition = editor.document.definition
+        let payloadTypes = definition.types
+
+        return EditorPanelSection(
+            title: "Type Library",
+            description: "Reusable structs and enums can be attached to payload properties across states and events."
+        ) {
+            if payloadTypes.isEmpty {
+                Label("No reusable types yet. Add a struct or enum above when primitive payloads stop being enough.", systemImage: "square.stack.3d.up")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(payloadTypes) { payloadType in
+                        PaletteLibraryCard(
+                            symbol: payloadType.paletteSymbol,
+                            symbolColor: payloadType.paletteColor,
+                            title: payloadType.name,
+                            subtitle: payloadType.librarySummary,
+                            isSelected: selectedTypeID == payloadType.id,
+                            isDeleteEnabled: !definition.typeIsReferenced(payloadType.id),
+                            deleteHelp: definition.typeIsReferenced(payloadType.id)
+                                ? "Remove references to this type before deleting it."
+                                : "Delete type"
+                        ) {
+                            store.send(.selectType(id: payloadType.id))
+                        } onDelete: {
+                            store.send(.deleteType(id: payloadType.id))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func stateLibrarySubtitle(
         for state: StateDefinition,
         initialStateID: String
@@ -246,19 +321,22 @@ private struct StateCreationPromptView: View {
     let prompt: StateMachineStateCreationPrompt
     let existingStateNames: [String]
     let reusableProperties: [ReusableStatePropertyOption]
+    let availableModelTypes: [PayloadTypeDefinition]
 
     @State private var nameDraft: String
     @State private var selectedPropertyIDs: Set<String>
-    @State private var propertyDrafts: [StateCreationPropertyDraft]
+    @State private var propertyDrafts: [EditorPropertyDraft]
 
     init(
         prompt: StateMachineStateCreationPrompt,
         existingStateNames: [String],
-        reusableProperties: [ReusableStatePropertyOption]
+        reusableProperties: [ReusableStatePropertyOption],
+        availableModelTypes: [PayloadTypeDefinition]
     ) {
         self.prompt = prompt
         self.existingStateNames = existingStateNames
         self.reusableProperties = reusableProperties
+        self.availableModelTypes = availableModelTypes
         _nameDraft = State(initialValue: prompt.suggestedName)
         _selectedPropertyIDs = State(initialValue: [])
         _propertyDrafts = State(initialValue: [])
@@ -288,7 +366,12 @@ private struct StateCreationPromptView: View {
                 } else {
                     VStack(spacing: 10) {
                         ForEach($propertyDrafts) { $propertyDraft in
-                            StateCreationPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                            EditorPropertyDraftRowView(
+                                propertyDraft: $propertyDraft,
+                                availableModelTypes: availableModelTypes,
+                                layout: .paletteInline,
+                                onEditReferencedType: selectType
+                            ) {
                                 removeProperty(propertyDraft.id)
                             }
                         }
@@ -321,7 +404,7 @@ private struct StateCreationPromptView: View {
                                         .font(.body)
 
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(reusableProperty.editorLabel)
+                                        Text(reusableProperty.editorLabel(typeDefinitions: availableModelTypes))
                                             .font(.footnote.weight(.semibold))
                                             .foregroundStyle(.primary)
                                             .multilineTextAlignment(.leading)
@@ -404,7 +487,7 @@ private struct StateCreationPromptView: View {
     }
 
     private var draftedProperties: [PropertyDefinition] {
-        propertyDrafts.map(\.propertyDefinition)
+        propertyDrafts.propertyDefinitions
     }
 
     private var allProperties: [PropertyDefinition] {
@@ -420,23 +503,15 @@ private struct StateCreationPromptView: View {
             return "State names must stay unique within the machine."
         }
 
-        let draftedPropertyNames = propertyDrafts.map(\.trimmedName)
-        if draftedPropertyNames.contains(where: \.isEmpty) {
-            return "Each new property needs a name before the state can be created."
-        }
-
         let propertyNames = allProperties.map(\.name)
         if Set(propertyNames).count != propertyNames.count {
             return "Property names must stay unique within the new state."
         }
 
-        if let defaultValueValidationMessage = propertyDrafts
-            .compactMap(\.defaultValueValidationMessage)
-            .first {
-            return defaultValueValidationMessage
-        }
-
-        return nil
+        return propertyDrafts.validationMessage(
+            emptyNameMessage: "Each new property needs a name before the state can be created.",
+            duplicateNameMessage: "Property names must stay unique within the new state."
+        )
     }
 
     private var canCreate: Bool {
@@ -465,6 +540,10 @@ private struct StateCreationPromptView: View {
         propertyDrafts.removeAll { $0.id == id }
     }
 
+    private func selectType(_ typeID: String) {
+        store.send(.selectType(id: typeID))
+    }
+
     private func createState() {
         guard canCreate else {
             return
@@ -484,16 +563,19 @@ private struct EventCreationPromptView: View {
 
     let prompt: StateMachineEventCreationPrompt
     let existingEventNames: [String]
+    let availableModelTypes: [PayloadTypeDefinition]
 
     @State private var nameDraft: String
     @State private var propertyDrafts: [EditorPropertyDraft]
 
     init(
         prompt: StateMachineEventCreationPrompt,
-        existingEventNames: [String]
+        existingEventNames: [String],
+        availableModelTypes: [PayloadTypeDefinition]
     ) {
         self.prompt = prompt
         self.existingEventNames = existingEventNames
+        self.availableModelTypes = availableModelTypes
         _nameDraft = State(initialValue: prompt.suggestedName)
         _propertyDrafts = State(initialValue: [])
     }
@@ -522,7 +604,12 @@ private struct EventCreationPromptView: View {
                 } else {
                     VStack(spacing: 10) {
                         ForEach($propertyDrafts) { $propertyDraft in
-                            EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                            EditorPropertyDraftRowView(
+                                propertyDraft: $propertyDraft,
+                                availableModelTypes: availableModelTypes,
+                                layout: .paletteInline,
+                                onEditReferencedType: selectType
+                            ) {
                                 removeProperty(propertyDraft.id)
                             }
                         }
@@ -598,6 +685,10 @@ private struct EventCreationPromptView: View {
         propertyDrafts.removeAll { $0.id == id }
     }
 
+    private func selectType(_ typeID: String) {
+        store.send(.selectType(id: typeID))
+    }
+
     private func createEvent() {
         guard canCreate else {
             return
@@ -609,120 +700,6 @@ private struct EventCreationPromptView: View {
                 properties: propertyDefinitions
             )
         )
-    }
-}
-
-private struct StateCreationPropertyDraft: Identifiable, Equatable {
-    let id: String
-    var name: String
-    var type: PropertyType
-    var isOptional: Bool
-    var defaultValue: PropertyDefaultValueDraft
-
-    init(
-        id: String = UUID().uuidString,
-        name: String = "",
-        type: PropertyType = .string,
-        isOptional: Bool = false,
-        defaultValue: PropertyDefaultValueDraft = .init()
-    ) {
-        self.id = id
-        self.name = name
-        self.type = type
-        self.isOptional = isOptional
-        self.defaultValue = defaultValue
-    }
-
-    var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var propertyDefinition: PropertyDefinition {
-        PropertyDefinition(
-            name: trimmedName,
-            type: type,
-            isOptional: isOptional,
-            defaultValue: defaultValue.literalValue(for: type)
-        )
-    }
-
-    var defaultValueValidationMessage: String? {
-        defaultValue.validationMessage(
-            for: type,
-            propertyName: trimmedName
-        )
-    }
-}
-
-private struct StateCreationPropertyDraftRowView: View {
-    @Binding var propertyDraft: StateCreationPropertyDraft
-    let remove: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Property name", text: $propertyDraft.name)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(alignment: .top, spacing: 12) {
-                StateCreationPropertyControlColumn(title: "Type") {
-                    Picker("Type", selection: $propertyDraft.type) {
-                        ForEach(PropertyType.allCases, id: \.self) { propertyType in
-                            Text(propertyType.rawValue.capitalized)
-                                .tag(propertyType)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                StateCreationPropertyControlColumn(title: "Optional") {
-                    Toggle("", isOn: $propertyDraft.isOptional)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-
-                Spacer(minLength: 0)
-
-                Button(role: .destructive, action: remove) {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.title3)
-                }
-                .buttonStyle(.plain)
-                .help("Remove property")
-            }
-
-            PropertyDefaultValueEditor(
-                type: propertyDraft.type,
-                draft: $propertyDraft.defaultValue
-            )
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-        }
-    }
-}
-
-private struct StateCreationPropertyControlColumn<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-
-            content
-        }
     }
 }
 
@@ -790,33 +767,137 @@ private struct PaletteLibraryCard: View {
 }
 
 private struct ToolboxActionCard: View {
+    enum Style {
+        case regular
+        case compact
+        case inlineCompact
+
+        var horizontalSpacing: CGFloat {
+            switch self {
+            case .regular:
+                return 12
+            case .compact:
+                return 10
+            case .inlineCompact:
+                return 8
+            }
+        }
+
+        var contentSpacing: CGFloat {
+            switch self {
+            case .regular:
+                return 4
+            case .compact:
+                return 2
+            case .inlineCompact:
+                return 0
+            }
+        }
+
+        var iconFont: Font {
+            switch self {
+            case .regular:
+                return .title3
+            case .compact:
+                return .body.weight(.semibold)
+            case .inlineCompact:
+                return .footnote.weight(.semibold)
+            }
+        }
+
+        var iconWidth: CGFloat {
+            switch self {
+            case .regular:
+                return 28
+            case .compact:
+                return 22
+            case .inlineCompact:
+                return 16
+            }
+        }
+
+        var padding: CGFloat {
+            switch self {
+            case .regular:
+                return SwiftMachineShellMetrics.cardPadding
+            case .compact:
+                return 12
+            case .inlineCompact:
+                return 10
+            }
+        }
+
+        var descriptionLineLimit: Int? {
+            switch self {
+            case .regular:
+                return nil
+            case .compact:
+                return 2
+            case .inlineCompact:
+                return nil
+            }
+        }
+
+        var showsDescription: Bool {
+            switch self {
+            case .regular, .compact:
+                return true
+            case .inlineCompact:
+                return false
+            }
+        }
+
+        var titleFont: Font {
+            switch self {
+            case .regular, .compact:
+                return .body.weight(.semibold)
+            case .inlineCompact:
+                return .footnote.weight(.semibold)
+            }
+        }
+
+        var verticalAlignment: VerticalAlignment {
+            switch self {
+            case .regular, .compact:
+                return .top
+            case .inlineCompact:
+                return .center
+            }
+        }
+    }
+
     let symbol: String
     let title: String
     let description: String
+    var style: Style = .regular
     var isEnabled = true
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: style.verticalAlignment, spacing: style.horizontalSpacing) {
                 Image(systemName: symbol)
-                    .font(.title3)
+                    .font(style.iconFont)
                     .foregroundStyle(isEnabled ? Color.accentColor : .secondary)
-                    .frame(width: 28)
+                    .frame(width: style.iconWidth)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: style.contentSpacing) {
                     Text(title)
-                        .font(.body.weight(.semibold))
+                        .font(style.titleFont)
 
-                    Text(description)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if style.showsDescription {
+                        Text(description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(style.descriptionLineLimit)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Spacer(minLength: 0)
             }
-            .padding(SwiftMachineShellMetrics.cardPadding)
+            .padding(style.padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.primary.opacity(isEnabled ? 0.05 : 0.025))
@@ -828,6 +909,7 @@ private struct ToolboxActionCard: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+        .help(description)
     }
 }
 
@@ -835,7 +917,7 @@ private struct ReusableStatePropertyOption: Identifiable, Hashable {
     let name: String
     let type: PropertyType
     let isOptional: Bool
-    let defaultValue: LiteralValue?
+    let defaultValue: PropertyDefaultValue?
     let sources: [String]
 
     var id: String {
@@ -847,8 +929,8 @@ private struct ReusableStatePropertyOption: Identifiable, Hashable {
         ].joined(separator: "|")
     }
 
-    var editorLabel: String {
-        propertyDefinition.editorLabel
+    func editorLabel(typeDefinitions: [PayloadTypeDefinition]) -> String {
+        propertyDefinition.editorLabel(typeDefinitions: typeDefinitions)
     }
 
     var sourceSummary: String {
@@ -869,7 +951,7 @@ private struct ReusableStatePropertySignature: Hashable {
     let name: String
     let type: PropertyType
     let isOptional: Bool
-    let defaultValue: LiteralValue?
+    let defaultValue: PropertyDefaultValue?
 }
 
 private extension StateMachineDefinition {
@@ -922,9 +1004,60 @@ private extension StateMachineDefinition {
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
     }
+
+    func typeIsReferenced(_ typeID: String) -> Bool {
+        states.contains { state in
+            state.properties.contains(where: { $0.type.referencedTypeID == typeID })
+        }
+        || events.contains { event in
+            event.properties.contains(where: { $0.type.referencedTypeID == typeID })
+        }
+        || types.contains { type in
+            switch type.kind {
+            case .structType(let fields):
+                return fields.contains(where: { $0.type.referencedTypeID == typeID })
+            case .enumType(let cases, _):
+                return cases.contains(where: { $0.payloadType?.referencedTypeID == typeID })
+            }
+        }
+    }
 }
 
-private extension LiteralValue {
+private extension PayloadTypeDefinition {
+    var paletteSymbol: String {
+        switch kind {
+        case .structType:
+            return "square.stack.3d.up.fill"
+        case .enumType:
+            return "point.3.connected.trianglepath.dotted"
+        }
+    }
+
+    var paletteColor: Color {
+        switch kind {
+        case .structType:
+            return .green
+        case .enumType:
+            return .purple
+        }
+    }
+
+    var librarySummary: String {
+        switch kind {
+        case .structType(let fields):
+            return fields.isEmpty
+                ? "Struct, no fields"
+                : "Struct, \(fields.count) field\(fields.count == 1 ? "" : "s")"
+        case .enumType(let cases, let defaultCaseID):
+            let defaultSummary = defaultCaseID == nil ? "no default" : "default case"
+            return cases.isEmpty
+                ? "Enum, no cases"
+                : "Enum, \(cases.count) case\(cases.count == 1 ? "" : "s"), \(defaultSummary)"
+        }
+    }
+}
+
+private extension PropertyDefaultValue {
     var signatureFragment: String {
         switch self {
         case .string(let value):
@@ -935,6 +1068,16 @@ private extension LiteralValue {
             return "double:\(value)"
         case .boolean(let value):
             return "boolean:\(value)"
+        case .structValue(let fields):
+            let fragments = fields.map { field in
+                "\(field.fieldID)=\(field.value.signatureFragment)"
+            }
+            .joined(separator: ",")
+
+            return "struct:{\(fragments)}"
+        case .enumCase(let caseID, let payload):
+            let payloadFragment = payload?.signatureFragment ?? "nil"
+            return "enum:\(caseID):\(payloadFragment)"
         }
     }
 }

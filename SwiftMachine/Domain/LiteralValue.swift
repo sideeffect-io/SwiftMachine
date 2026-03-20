@@ -44,6 +44,12 @@ enum LiteralValue: Sendable, Codable, Equatable, Hashable {
             self = .double(try container.decode(Double.self, forKey: .value))
         case .boolean:
             self = .boolean(try container.decode(Bool.self, forKey: .value))
+        case .model:
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Literal values cannot decode model payload types."
+            )
         }
     }
 

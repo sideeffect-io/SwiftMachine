@@ -42,7 +42,7 @@ struct SwiftMachineStateMachineTests {
     func blankInitialStateNameDoesNotAdvance() {
         let transition = SwiftMachineStateMachine.reduce(
             .drafting(name: "Checkout"),
-            .setInitialState(name: " ", properties: [])
+            .setInitialState(name: " ", properties: [], types: [])
         )
 
         #expect(transition.state == .drafting(name: "Checkout"))
@@ -55,7 +55,8 @@ struct SwiftMachineStateMachineTests {
             .drafting(name: "Checkout"),
             .setInitialState(
                 name: "Idle",
-                properties: [PropertyDefinition(name: "amount", type: .double)]
+                properties: [PropertyDefinition(name: "amount", type: .double)],
+                types: []
             )
         )
 
@@ -75,6 +76,128 @@ struct SwiftMachineStateMachineTests {
         #expect(stateMachine.isValid)
         #expect(editor.document.position(for: stateMachine.initialStateID) == StateMachineEditorDocument.initialStateOrigin)
         #expect(editor.selection == nil)
+    }
+
+    @Test("A valid initial state can include reusable complex payload types")
+    func validInitialStateCanIncludeReusableComplexPayloadTypes() throws {
+        let userType = PayloadTypeDefinition(
+            id: "type-user",
+            name: "User",
+            kind: .structType(fields: [
+                PropertyDefinition(id: "field-name", name: "name", type: .string)
+            ])
+        )
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .drafting(name: "Checkout"),
+            .setInitialState(
+                name: "Idle",
+                properties: [
+                    PropertyDefinition(
+                        name: "user",
+                        type: .model(typeID: userType.id)
+                    )
+                ],
+                types: [userType]
+            )
+        )
+
+        guard case .designing(let editor) = transition.state else {
+            Issue.record("Expected the reducer to enter the designing phase.")
+            return
+        }
+
+        let definition = editor.document.definition
+
+        #expect(definition.types == [userType])
+        #expect(definition.states.first?.properties.map(\.type) == [.model(typeID: userType.id)])
+        #expect(definition.validate().isEmpty)
+    }
+
+    @Test("A valid initial state can include reusable struct field default values")
+    func validInitialStateCanIncludeReusableStructFieldDefaultValues() throws {
+        let positionType = PayloadTypeDefinition(
+            id: "type-position",
+            name: "Position",
+            kind: .structType(fields: [
+                PropertyDefinition(
+                    id: "field-value",
+                    name: "value",
+                    type: .integer,
+                    defaultValue: .integer(0)
+                )
+            ])
+        )
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .drafting(name: "Shutter"),
+            .setInitialState(
+                name: "Idle",
+                properties: [
+                    PropertyDefinition(
+                        name: "position",
+                        type: .model(typeID: positionType.id)
+                    )
+                ],
+                types: [positionType]
+            )
+        )
+
+        guard case .designing(let editor) = transition.state else {
+            Issue.record("Expected the reducer to enter the designing phase.")
+            return
+        }
+
+        let storedType = try #require(
+            editor.document.definition.types.first(where: { $0.id == positionType.id })
+        )
+
+        #expect(storedType.kind.fields.first?.defaultValue == .integer(0))
+        #expect(editor.document.definition.validate().isEmpty)
+    }
+
+    @Test("A valid initial state can include complex property default values")
+    func validInitialStateCanIncludeComplexPropertyDefaultValues() throws {
+        let userType = PayloadTypeDefinition(
+            id: "type-user",
+            name: "User",
+            kind: .structType(fields: [
+                PropertyDefinition(id: "field-name", name: "name", type: .string)
+            ])
+        )
+        let defaultValue: PropertyDefaultValue = .structValue(fields: [
+            PropertyDefaultFieldValue(
+                fieldID: "field-name",
+                value: .string("Alice")
+            )
+        ])
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .drafting(name: "Checkout"),
+            .setInitialState(
+                name: "Idle",
+                properties: [
+                    PropertyDefinition(
+                        name: "user",
+                        type: .model(typeID: userType.id),
+                        defaultValue: defaultValue
+                    )
+                ],
+                types: [userType]
+            )
+        )
+
+        guard case .designing(let editor) = transition.state else {
+            Issue.record("Expected the reducer to enter the designing phase.")
+            return
+        }
+
+        let storedDefaultValue = try #require(
+            editor.document.definition.states.first?.properties.first?.defaultValue
+        )
+
+        #expect(storedDefaultValue == defaultValue)
+        #expect(editor.document.definition.validate().isEmpty)
     }
 
     @Test("Selecting and clearing selection updates the editor session")
@@ -117,6 +240,73 @@ struct SwiftMachineStateMachineTests {
         }
 
         #expect(selectedEditor.selection == .event(id: eventID))
+    }
+
+    @Test("Adding a reusable struct type selects it in the editor")
+    func addingReusableStructTypeSelectsIt() throws {
+        let editor = try makeInitialEditor()
+
+        let transition = SwiftMachineStateMachine.reduce(
+            .designing(editor: editor),
+            .addStructType
+        )
+
+        guard case .designing(let updatedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase.")
+            return
+        }
+
+        let createdType = try #require(updatedEditor.document.definition.types.first)
+
+        #expect(createdType.kind == .structType(fields: []))
+        #expect(updatedEditor.selection == .type(id: createdType.id))
+    }
+
+    @Test("Updating a selected reusable type stores the edited definition")
+    func updatingSelectedReusableTypeChangesDefinition() throws {
+        let editor = try makeInitialEditor()
+        let created = SwiftMachineStateMachine.reduce(
+            .designing(editor: editor),
+            .addEnumType
+        )
+
+        guard case .designing(let createdEditor) = created.state else {
+            Issue.record("Expected the editor to stay in the designing phase after adding a type.")
+            return
+        }
+
+        let createdType = try #require(createdEditor.document.definition.types.first)
+        let updatedType = PayloadTypeDefinition(
+            id: createdType.id,
+            name: "SubmissionResult",
+            kind: .enumType(
+                cases: [
+                    PayloadEnumCaseDefinition(id: "case-idle", name: "idle"),
+                    PayloadEnumCaseDefinition(id: "case-success", name: "success", payloadType: .string)
+                ],
+                defaultCaseID: "case-idle"
+            )
+        )
+
+        let transition = SwiftMachineStateMachine.reduce(
+            created.state,
+            .updateType(
+                typeID: createdType.id,
+                type: updatedType
+            )
+        )
+
+        guard case .designing(let updatedEditor) = transition.state else {
+            Issue.record("Expected the editor to stay in the designing phase after editing a type.")
+            return
+        }
+
+        let storedType = try #require(
+            updatedEditor.document.definition.types.first(where: { $0.id == createdType.id })
+        )
+
+        #expect(updatedEditor.selection == .type(id: createdType.id))
+        #expect(storedType == updatedType)
     }
 
     @Test("Moving a state updates layout without mutating the semantic machine")
@@ -611,11 +801,15 @@ struct SwiftMachineStateMachineTests {
             assignments: [
                 TransitionTargetStatePropertyAssignment(
                     targetPropertyID: targetAmountPropertyID,
-                    valueSource: .sourceStateProperty(propertyID: "source-amount")
+                    valueSource: .sourceStateProperty(
+                        reference: PropertyValueReference(propertyID: "source-amount")
+                    )
                 ),
                 TransitionTargetStatePropertyAssignment(
                     targetPropertyID: targetPriorityPropertyID,
-                    valueSource: .eventProperty(propertyID: "event-is-priority")
+                    valueSource: .eventProperty(
+                        reference: PropertyValueReference(propertyID: "event-is-priority")
+                    )
                 )
             ]
         )

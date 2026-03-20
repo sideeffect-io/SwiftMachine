@@ -200,6 +200,47 @@ struct StateMachineEditorDocumentTests {
         #expect(updatedTransition.targetStateID == initialStateID)
     }
 
+    @Test("Document can add and update reusable payload types")
+    func documentAddsAndUpdatesReusablePayloadTypes() throws {
+        let document = try #require(makeEditorDocument())
+        let structResult = try #require(document.addingStructType())
+        let enumResult = try #require(structResult.document.addingEnumType())
+        let structTypeID = structResult.typeID
+        let enumTypeID = enumResult.typeID
+
+        let renamedDocument = try #require(
+            enumResult.document.renamingType(
+                id: structTypeID,
+                to: "User"
+            )
+        )
+        let updatedDocument = try #require(
+            renamedDocument.updatingType(
+                PayloadTypeDefinition(
+                    id: structTypeID,
+                    name: "User",
+                    kind: .structType(fields: [
+                        PropertyDefinition(id: "field-name", name: "name", type: .string)
+                    ])
+                ),
+                forTypeID: structTypeID
+            )
+        )
+
+        let userType = try #require(
+            updatedDocument.definition.types.first(where: { $0.id == structTypeID })
+        )
+        let enumType = try #require(
+            updatedDocument.definition.types.first(where: { $0.id == enumTypeID })
+        )
+
+        #expect(updatedDocument.definition.validate().isEmpty)
+        #expect(updatedDocument.statePositions == document.statePositions)
+        #expect(userType.name == "User")
+        #expect(userType.kind.fields.map(\.name) == ["name"])
+        #expect(enumType.kind.cases.isEmpty)
+    }
+
     @Test("Transition target-state creation reconciles when referenced properties disappear")
     func transitionTargetStateCreationReconcilesAfterPropertyChanges() throws {
         let machine = try #require(
@@ -242,7 +283,9 @@ struct StateMachineEditorDocumentTests {
                     assignments: [
                         TransitionTargetStatePropertyAssignment(
                             targetPropertyID: targetAmountPropertyID,
-                            valueSource: .sourceStateProperty(propertyID: "source-amount")
+                            valueSource: .sourceStateProperty(
+                                reference: PropertyValueReference(propertyID: "source-amount")
+                            )
                         )
                     ]
                 ),
@@ -264,6 +307,70 @@ struct StateMachineEditorDocumentTests {
         #expect(
             reconciledTransition.targetStateCreation.assignments.first?.valueSource == .targetDefault
         )
+    }
+
+    @Test("Transition target-state creation preserves custom notes during reconciliation")
+    func transitionTargetStateCreationPreservesCustomNotesAfterPropertyChanges() throws {
+        let machine = try #require(
+            StateMachineDefinition.makeNew(
+                name: "Checkout",
+                initialStateName: "Idle",
+                initialStateProperties: [
+                    PropertyDefinition(id: "source-amount", name: "amount", type: .double)
+                ]
+            )
+        )
+        let baseDocument = StateMachineEditorDocument.bootstrap(definition: machine)
+        let secondStateResult = try #require(
+            baseDocument.addingState(
+                named: "Loading",
+                properties: [
+                    PropertyDefinition(id: "target-amount", name: "amount", type: .double)
+                ]
+            )
+        )
+        let eventResult = try #require(secondStateResult.document.addingEvent())
+        let targetState = try #require(
+            secondStateResult.document.definition.states.first(where: { $0.id == secondStateResult.stateID })
+        )
+        let targetAmountPropertyID = try #require(
+            targetState.properties.first(where: { $0.name == "amount" })?.id
+        )
+
+        let transitionResult = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: secondStateResult.document.definition.initialStateID,
+                targetStateID: secondStateResult.stateID,
+                eventID: eventResult.eventID
+            )
+        )
+        let customMapping = TransitionTargetStateCreation(
+            assignments: [
+                TransitionTargetStatePropertyAssignment(
+                    targetPropertyID: targetAmountPropertyID,
+                    valueSource: .custom(comment: "Derived by a custom formatter before entering Loading.")
+                )
+            ]
+        )
+        let mappedDocument = try #require(
+            transitionResult.document.updatingTransitionTargetStateCreation(
+                customMapping,
+                forTransitionID: transitionResult.transitionID
+            )
+        )
+        let reconciledDocument = try #require(
+            mappedDocument.updatingStateProperties(
+                [],
+                forStateID: secondStateResult.document.definition.initialStateID
+            )
+        )
+
+        let reconciledTransition = try #require(
+            reconciledDocument.definition.transitions.first(where: { $0.id == transitionResult.transitionID })
+        )
+
+        #expect(reconciledDocument.definition.validate().isEmpty)
+        #expect(reconciledTransition.targetStateCreation == customMapping)
     }
 
     @Test("Document can create transition events and edit guard/effect references")
@@ -472,6 +579,107 @@ struct StateMachineEditorDocumentTests {
         #expect(updatedDocument.statePositions == eventResult.document.statePositions)
         #expect(updatedDocument.transitionPositions == eventResult.document.transitionPositions)
         #expect(updatedEvent.name == "Confirm")
+    }
+
+    @Test("Updating a type reconciles incompatible complex property defaults")
+    func updatingTypeReconcilesIncompatibleComplexPropertyDefaults() throws {
+        let userTypeID = "type-user"
+        let machine = StateMachineDefinition(
+            id: "machine",
+            name: "Checkout",
+            initialStateID: "idle",
+            types: [
+                PayloadTypeDefinition(
+                    id: userTypeID,
+                    name: "User",
+                    kind: .structType(fields: [
+                        PropertyDefinition(id: "field-name", name: "name", type: .string)
+                    ])
+                )
+            ],
+            states: [
+                StateDefinition(
+                    id: "idle",
+                    name: "Idle",
+                    properties: [
+                        PropertyDefinition(
+                            id: "state-user",
+                            name: "user",
+                            type: .model(typeID: userTypeID),
+                            defaultValue: .structValue(fields: [
+                                PropertyDefaultFieldValue(
+                                    fieldID: "field-name",
+                                    value: .string("Alice")
+                                )
+                            ])
+                        )
+                    ]
+                )
+            ],
+            events: [],
+            transitions: []
+        )
+
+        let document = StateMachineEditorDocument.bootstrap(definition: machine)
+        let updatedDocument = try #require(
+            document.updatingType(
+                PayloadTypeDefinition(
+                    id: userTypeID,
+                    name: "User",
+                    kind: .structType(fields: [
+                        PropertyDefinition(id: "field-id", name: "id", type: .integer)
+                    ])
+                ),
+                forTypeID: userTypeID
+            )
+        )
+
+        let updatedProperty = try #require(
+            updatedDocument.definition.states.first?.properties.first
+        )
+
+        #expect(updatedProperty.defaultValue == nil)
+        #expect(updatedDocument.definition.validate().isEmpty)
+    }
+
+    @Test("Enabling default drafts activates literal editors")
+    func enablingDefaultDraftsActivatesLiteralEditors() throws {
+        var primitiveDraft = PropertyDefaultDraft(
+            targetName: "value",
+            targetType: .integer,
+            targetSchema: .primitive(type: .integer),
+            defaultValue: nil
+        )
+
+        #expect(primitiveDraft.isEnabled == false)
+        #expect(primitiveDraft.literalDraft.isEnabled == false)
+
+        primitiveDraft.setEnabled(true)
+
+        #expect(primitiveDraft.isEnabled)
+        #expect(primitiveDraft.literalDraft.isEnabled)
+
+        var complexDraft = PropertyDefaultDraft(
+            targetName: "position",
+            targetType: .model(typeID: "type-position"),
+            targetSchema: .structType(fields: [
+                ResolvedPropertyField(
+                    id: "field-value",
+                    name: "value",
+                    type: .integer,
+                    isOptional: false,
+                    schema: .primitive(type: .integer)
+                )
+            ]),
+            defaultValue: nil
+        )
+
+        complexDraft.setEnabled(true)
+
+        let fieldDraft = try #require(complexDraft.fieldDrafts.first)
+        #expect(complexDraft.isEnabled)
+        #expect(fieldDraft.valueDraft.isEnabled)
+        #expect(fieldDraft.valueDraft.literalDraft.isEnabled)
     }
 
     @Test("Property default drafts preserve empty strings and validate typed literals")

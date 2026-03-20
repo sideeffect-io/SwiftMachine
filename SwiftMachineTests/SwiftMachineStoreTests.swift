@@ -21,7 +21,8 @@ struct SwiftMachineStoreTests {
         store.send(
             .setInitialState(
                 name: "Idle",
-                properties: [PropertyDefinition(name: "amount", type: .double)]
+                properties: [PropertyDefinition(name: "amount", type: .double)],
+                types: []
             )
         )
 

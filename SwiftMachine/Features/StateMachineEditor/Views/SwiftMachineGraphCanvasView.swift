@@ -209,7 +209,8 @@ struct SwiftMachineGraphCanvasView: View {
                     prompt: prompt,
                     events: definition.events,
                     sourceState: definition.states.first(where: { $0.id == prompt.sourceStateID }),
-                    targetState: definition.states.first(where: { $0.id == prompt.targetStateID })
+                    targetState: definition.states.first(where: { $0.id == prompt.targetStateID }),
+                    availableModelTypes: definition.types
                 )
                 .id(promptIdentity(prompt))
                 .position(promptPosition(for: prompt.anchor))
@@ -806,6 +807,7 @@ private struct TransitionPromptView: View {
     let events: [EventDefinition]
     let sourceState: StateDefinition?
     let targetState: StateDefinition?
+    let availableModelTypes: [PayloadTypeDefinition]
 
     @State private var mode: TransitionPromptMode = .createNew
     @State private var selectedEventID = ""
@@ -818,18 +820,21 @@ private struct TransitionPromptView: View {
         prompt: StateMachineTransitionPrompt,
         events: [EventDefinition],
         sourceState: StateDefinition?,
-        targetState: StateDefinition?
+        targetState: StateDefinition?,
+        availableModelTypes: [PayloadTypeDefinition]
     ) {
         self.prompt = prompt
         self.events = events
         self.sourceState = sourceState
         self.targetState = targetState
+        self.availableModelTypes = availableModelTypes
         _targetStateCreationDraft = State(
             initialValue: TransitionTargetStateCreationDraft(
                 existingCreation: .init(),
                 sourceProperties: sourceState?.properties ?? [],
                 eventProperties: [],
-                targetProperties: targetState?.properties ?? []
+                targetProperties: targetState?.properties ?? [],
+                typeDefinitions: availableModelTypes
             )
         )
     }
@@ -875,7 +880,11 @@ private struct TransitionPromptView: View {
                     } else {
                         VStack(spacing: 10) {
                             ForEach($existingEventPropertyDrafts) { $propertyDraft in
-                                EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                                EditorPropertyDraftRowView(
+                                    propertyDraft: $propertyDraft,
+                                    availableModelTypes: availableModelTypes,
+                                    layout: .paletteInline
+                                ) {
                                     removeExistingEventProperty(propertyDraft.id)
                                 }
                             }
@@ -896,7 +905,11 @@ private struct TransitionPromptView: View {
                     } else {
                         VStack(spacing: 10) {
                             ForEach($newEventPropertyDrafts) { $propertyDraft in
-                                EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                                EditorPropertyDraftRowView(
+                                    propertyDraft: $propertyDraft,
+                                    availableModelTypes: availableModelTypes,
+                                    layout: .paletteInline
+                                ) {
                                     removeNewEventProperty(propertyDraft.id)
                                 }
                             }
@@ -922,6 +935,7 @@ private struct TransitionPromptView: View {
                         eventProperties: activeEventProperties,
                         targetStateName: targetState.name,
                         targetProperties: targetState.properties,
+                        typeDefinitions: availableModelTypes,
                         draft: $targetStateCreationDraft
                     )
                 }
@@ -1094,7 +1108,12 @@ private struct TransitionPromptView: View {
     }
 
     private func resetExistingEventDrafts() {
-        existingEventPropertyDrafts = selectedEvent?.properties.map(EditorPropertyDraft.init(property:)) ?? []
+        existingEventPropertyDrafts = selectedEvent?.properties.map { property in
+            EditorPropertyDraft(
+                property: property,
+                availableModelTypes: availableModelTypes
+            )
+        } ?? []
     }
 
     private func removeExistingEventProperty(_ id: String) {
@@ -1110,7 +1129,8 @@ private struct TransitionPromptView: View {
             existingCreation: targetStateCreationDraft.targetStateCreation,
             sourceProperties: sourceState?.properties ?? [],
             eventProperties: activeEventProperties,
-            targetProperties: targetState?.properties ?? []
+            targetProperties: targetState?.properties ?? [],
+            typeDefinitions: availableModelTypes
         )
     }
 }

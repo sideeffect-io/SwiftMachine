@@ -36,9 +36,29 @@ struct TransitionTargetStatePropertyAssignment: Sendable, Codable, Equatable, Ha
     }
 }
 
-enum TransitionTargetStateValueSource: Sendable, Codable, Equatable, Hashable {
+struct TransitionTargetStateFieldAssignment: Sendable, Codable, Equatable, Hashable, Identifiable {
+    let fieldID: String
+    let valueSource: TransitionTargetStateValueSource
+
+    init(
+        fieldID: String,
+        valueSource: TransitionTargetStateValueSource
+    ) {
+        self.fieldID = fieldID
+        self.valueSource = valueSource
+    }
+
+    var id: String {
+        fieldID
+    }
+}
+
+indirect enum TransitionTargetStateValueSource: Sendable, Codable, Equatable, Hashable {
     case targetDefault
-    case sourceStateProperty(propertyID: String)
-    case eventProperty(propertyID: String)
+    case sourceStateProperty(reference: PropertyValueReference)
+    case eventProperty(reference: PropertyValueReference)
     case literal(LiteralValue)
+    case custom(comment: String)
+    case fieldMap(fields: [TransitionTargetStateFieldAssignment])
+    case enumCase(caseID: String, payload: TransitionTargetStateValueSource?)
 }

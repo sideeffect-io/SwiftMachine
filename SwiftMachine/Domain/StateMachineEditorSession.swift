@@ -41,6 +41,7 @@ struct StateMachineEditorSession: Sendable, Equatable {
 enum StateMachineEditorSelection: Sendable, Equatable {
     case state(id: String)
     case event(id: String)
+    case type(id: String)
     case transition(id: String)
 
     func exists(in definition: StateMachineDefinition) -> Bool {
@@ -49,6 +50,8 @@ enum StateMachineEditorSelection: Sendable, Equatable {
             definition.states.contains(where: { $0.id == id })
         case .event(let id):
             definition.events.contains(where: { $0.id == id })
+        case .type(let id):
+            definition.types.contains(where: { $0.id == id })
         case .transition(let id):
             definition.transitions.contains(where: { $0.id == id })
         }

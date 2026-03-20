@@ -52,7 +52,7 @@ struct SwiftMachineInspectorView: View {
             Label("Inspector", systemImage: "sidebar.right")
                 .font(.title2.weight(.semibold))
 
-            Text("The right panel follows the selected state, event, or transition and summarizes the current graph semantics.")
+            Text("The right panel follows the selected state, event, type, or transition and summarizes the current graph semantics.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -72,6 +72,13 @@ struct SwiftMachineInspectorView: View {
         case .event(let eventID):
             if let event = editor.document.definition.events.first(where: { $0.id == eventID }) {
                 eventInspector(event: event, editor: editor)
+            } else {
+                emptySelectionInspector(editor: editor)
+            }
+
+        case .type(let typeID):
+            if let payloadType = editor.document.definition.types.first(where: { $0.id == typeID }) {
+                typeInspector(type: payloadType, editor: editor)
             } else {
                 emptySelectionInspector(editor: editor)
             }
@@ -113,7 +120,10 @@ struct SwiftMachineInspectorView: View {
 
                 Divider()
 
-                StatePropertiesEditorView(state: state)
+                StatePropertiesEditorView(
+                    state: state,
+                    availableModelTypes: definition.types
+                )
                     .id(state.id)
             }
         }
@@ -146,7 +156,10 @@ struct SwiftMachineInspectorView: View {
 
                 Divider()
 
-                EventPropertiesEditorView(event: event)
+                EventPropertiesEditorView(
+                    event: event,
+                    availableModelTypes: definition.types
+                )
                     .id("event-properties-\(event.id)")
             }
         }
@@ -204,6 +217,61 @@ struct SwiftMachineInspectorView: View {
                     transition: transition,
                     states: definition.states
                 )
+            }
+        }
+    }
+
+    private func typeInspector(
+        type: PayloadTypeDefinition,
+        editor: StateMachineEditorSession
+    ) -> some View {
+        let definition = editor.document.definition
+        let typeKindTint: Color = {
+            switch type.kind {
+            case .structType:
+                return .green
+            case .enumType:
+                return .purple
+            }
+        }()
+
+        return VStack(alignment: .leading, spacing: SwiftMachineShellMetrics.panelSpacing) {
+            EditorPanelSection(
+                title: "Selected Type",
+                description: "Reusable structs and enums let payload properties stay composable without redefining the same shape across states and events."
+            ) {
+                TypeTitleEditorView(
+                    type: type,
+                    siblingNames: definition.types
+                        .filter { $0.id != type.id }
+                        .map(\.name)
+                )
+                .id("type-title-\(type.id)")
+
+                EditorBadge(
+                    text: type.kindTitle,
+                    tint: typeKindTint
+                )
+
+                Divider()
+
+                switch type.kind {
+                case .structType:
+                    StructTypeFieldsEditorView(
+                        type: type,
+                        availableModelTypes: definition.types
+                            .filter { $0.id != type.id }
+                    )
+                    .id("type-fields-\(type.id)")
+
+                case .enumType:
+                    EnumTypeCasesEditorView(
+                        type: type,
+                        availableModelTypes: definition.types
+                            .filter { $0.id != type.id }
+                    )
+                    .id("type-cases-\(type.id)")
+                }
             }
         }
     }
@@ -316,24 +384,6 @@ private struct TransitionEventEditorView: View {
     let transition: TransitionDefinition
     let events: [EventDefinition]
 
-    @State private var currentEventPropertyDrafts: [EditorPropertyDraft]
-    @State private var newEventName = ""
-    @State private var newEventPropertyDrafts: [EditorPropertyDraft] = []
-
-    init(
-        transition: TransitionDefinition,
-        events: [EventDefinition]
-    ) {
-        self.transition = transition
-        self.events = events
-        _currentEventPropertyDrafts = State(
-            initialValue: events
-                .first(where: { $0.id == transition.eventID })?
-                .properties
-                .map(EditorPropertyDraft.init(property:)) ?? []
-        )
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             TransitionPickerField(title: "Current Event") {
@@ -364,94 +414,22 @@ private struct TransitionEventEditorView: View {
                 Label("Event Payload", systemImage: "tray.full")
                     .font(.subheadline.weight(.semibold))
 
-                Text("Event payload is machine-wide. Editing these properties updates every transition that uses \(currentEvent?.name ?? "this event").")
+                Text(payloadDescription)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if currentEventPropertyDrafts.isEmpty {
-                    Label("No payload properties yet. Add one to attach typed data to this event.", systemImage: "rectangle.stack.badge.plus")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                if let currentEvent {
+                    EditorBadge(
+                        text: "\(currentEvent.properties.count) payload \(currentEvent.properties.count == 1 ? "property" : "properties")",
+                        tint: .orange
+                    )
                 } else {
-                    VStack(spacing: 10) {
-                        ForEach($currentEventPropertyDrafts) { $propertyDraft in
-                            EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
-                                removeCurrentEventProperty(propertyDraft.id)
-                            }
-                        }
-                    }
-                }
-
-                Button("Add Property", systemImage: "plus.circle") {
-                    currentEventPropertyDrafts.append(.init())
-                }
-
-                if let currentEventValidationMessage {
-                    Label(currentEventValidationMessage, systemImage: "exclamationmark.triangle")
+                    Label("This transition no longer references a known event. Pick another event above.", systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundStyle(.orange)
                 }
-
-                HStack {
-                    Button("Reset", action: resetCurrentEventDrafts)
-                        .disabled(!isCurrentEventDirty)
-
-                    Spacer(minLength: 12)
-
-                    Button("Apply Properties", action: applyCurrentEventProperties)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!canApplyCurrentEventProperties)
-                }
             }
-
-            TransitionEditorCard {
-                Label("Create and Assign", systemImage: "bolt.badge.clock")
-                    .font(.subheadline.weight(.semibold))
-
-                TextField("New event name", text: $newEventName)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(createEvent)
-
-                if newEventPropertyDrafts.isEmpty {
-                    Label("No payload properties yet. Add one if the new event should carry typed data.", systemImage: "rectangle.stack.badge.plus")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(spacing: 10) {
-                        ForEach($newEventPropertyDrafts) { $propertyDraft in
-                            EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
-                                removeNewEventProperty(propertyDraft.id)
-                            }
-                        }
-                    }
-                }
-
-                Button("Add Property", systemImage: "plus.circle") {
-                    newEventPropertyDrafts.append(.init())
-                }
-
-                if let newEventValidationMessage {
-                    Label(newEventValidationMessage, systemImage: "exclamationmark.triangle")
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                }
-
-                HStack {
-                    Spacer(minLength: 12)
-
-                    Button("Create Event", systemImage: "plus.circle", action: createEvent)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!canCreate)
-                }
-            }
-        }
-        .onAppear(perform: resetCurrentEventDrafts)
-        .onChange(of: transition.eventID) { _, _ in
-            resetCurrentEventDrafts()
-        }
-        .onChange(of: currentEvent?.properties) { _, _ in
-            resetCurrentEventDrafts()
         }
     }
 
@@ -459,107 +437,12 @@ private struct TransitionEventEditorView: View {
         events.first(where: { $0.id == transition.eventID })
     }
 
-    private var currentEventProperties: [PropertyDefinition] {
-        currentEventPropertyDrafts.propertyDefinitions
-    }
-
-    private var newEventProperties: [PropertyDefinition] {
-        newEventPropertyDrafts.propertyDefinitions
-    }
-
-    private var trimmedNewEventName: String {
-        newEventName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var normalizedEventNames: Set<String> {
-        Set(
-            events.map {
-                $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        )
-    }
-
-    private var isCurrentEventDirty: Bool {
-        currentEventProperties != (currentEvent?.properties ?? [])
-    }
-
-    private var canApplyCurrentEventProperties: Bool {
-        currentEventValidationMessage == nil && isCurrentEventDirty
-    }
-
-    private var canCreate: Bool {
-        newEventValidationMessage == nil && !trimmedNewEventName.isEmpty
-    }
-
-    private var currentEventValidationMessage: String? {
-        currentEventPropertyDrafts.validationMessage(
-            emptyNameMessage: "Each property row needs a name before the event can be updated.",
-            duplicateNameMessage: "Property names must be unique within an event."
-        )
-    }
-
-    private var newEventValidationMessage: String? {
-        guard !newEventName.isEmpty else {
-            return newEventPropertyDrafts.validationMessage(
-                emptyNameMessage: "Each property row needs a name before the event can be created.",
-                duplicateNameMessage: "Property names must be unique within an event."
-            )
+    private var payloadDescription: String {
+        guard let currentEvent else {
+            return "This transition should reference an existing event. Reassign it from the menu above."
         }
 
-        if trimmedNewEventName.isEmpty {
-            return "The new event needs a name."
-        }
-
-        if normalizedEventNames.contains(trimmedNewEventName) {
-            return "Event names must stay unique within the machine."
-        }
-
-        return newEventPropertyDrafts.validationMessage(
-            emptyNameMessage: "Each property row needs a name before the event can be created.",
-            duplicateNameMessage: "Property names must be unique within an event."
-        )
-    }
-
-    private func removeCurrentEventProperty(_ id: String) {
-        currentEventPropertyDrafts.removeAll { $0.id == id }
-    }
-
-    private func removeNewEventProperty(_ id: String) {
-        newEventPropertyDrafts.removeAll { $0.id == id }
-    }
-
-    private func applyCurrentEventProperties() {
-        guard canApplyCurrentEventProperties,
-              let currentEvent else {
-            return
-        }
-
-        store.send(
-            .updateEventProperties(
-                eventID: currentEvent.id,
-                properties: currentEventProperties
-            )
-        )
-    }
-
-    private func resetCurrentEventDrafts() {
-        currentEventPropertyDrafts = currentEvent?.properties.map(EditorPropertyDraft.init(property:)) ?? []
-    }
-
-    private func createEvent() {
-        guard canCreate else {
-            return
-        }
-
-        store.send(
-            .assignNewEventToTransition(
-                transitionID: transition.id,
-                name: newEventName,
-                properties: newEventProperties
-            )
-        )
-        newEventName = ""
-        newEventPropertyDrafts = []
+        return "\(currentEvent.name) is reusable across the whole machine. Edit its payload from the palette pane, and every transition using it will update together."
     }
 }
 
@@ -603,7 +486,8 @@ private struct TransitionTargetStateCreationEditorSectionView: View {
                 existingCreation: transition.targetStateCreation,
                 sourceProperties: sourceState?.properties ?? [],
                 eventProperties: event?.properties ?? [],
-                targetProperties: targetState?.properties ?? []
+                targetProperties: targetState?.properties ?? [],
+                typeDefinitions: []
             )
         )
     }
@@ -623,6 +507,7 @@ private struct TransitionTargetStateCreationEditorSectionView: View {
                     eventProperties: event.properties,
                     targetStateName: targetState.name,
                     targetProperties: targetState.properties,
+                    typeDefinitions: typeDefinitions,
                     draft: $draft
                 )
 
@@ -661,6 +546,7 @@ private struct TransitionTargetStateCreationEditorSectionView: View {
             sourceProperties: sourceState?.properties ?? [],
             eventProperties: event?.properties ?? [],
             targetProperties: targetState?.properties ?? [],
+            typeDefinitions: typeDefinitions,
             targetStateCreation: transition.targetStateCreation
         )
     }
@@ -670,8 +556,17 @@ private struct TransitionTargetStateCreationEditorSectionView: View {
             existingCreation: transition.targetStateCreation,
             sourceProperties: sourceState?.properties ?? [],
             eventProperties: event?.properties ?? [],
-            targetProperties: targetState?.properties ?? []
+            targetProperties: targetState?.properties ?? [],
+            typeDefinitions: typeDefinitions
         )
+    }
+
+    private var typeDefinitions: [PayloadTypeDefinition] {
+        guard case .designing(let editor) = store.state else {
+            return []
+        }
+
+        return editor.document.definition.types
     }
 
     private func apply() {
@@ -692,6 +587,7 @@ private struct TransitionTargetStateCreationEditorContextSignature: Equatable {
     let sourceProperties: [PropertyDefinition]
     let eventProperties: [PropertyDefinition]
     let targetProperties: [PropertyDefinition]
+    let typeDefinitions: [PayloadTypeDefinition]
     let targetStateCreation: TransitionTargetStateCreation
 }
 
@@ -1577,17 +1473,521 @@ private struct EventTitleEditorView: View {
     }
 }
 
+private struct TypeTitleEditorView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let type: PayloadTypeDefinition
+    let siblingNames: [String]
+
+    @State private var nameDraft: String
+
+    init(type: PayloadTypeDefinition, siblingNames: [String]) {
+        self.type = type
+        self.siblingNames = siblingNames
+        _nameDraft = State(initialValue: type.name)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Type Name", systemImage: "character.cursor.ibeam")
+                .font(.subheadline.weight(.semibold))
+
+            TextField("Type name", text: $nameDraft)
+                .textFieldStyle(.roundedBorder)
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Reset") {
+                    nameDraft = type.name
+                }
+                .disabled(!isDirty)
+
+                Spacer(minLength: 12)
+
+                Button("Apply Name", action: apply)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canApply)
+            }
+        }
+    }
+
+    private var normalizedSiblingNames: Set<String> {
+        Set(
+            siblingNames.map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        )
+    }
+
+    private var trimmedName: String {
+        nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isDirty: Bool {
+        trimmedName != type.name
+    }
+
+    private var canApply: Bool {
+        validationMessage == nil && isDirty
+    }
+
+    private var validationMessage: String? {
+        if trimmedName.isEmpty {
+            return "The type name cannot be empty."
+        }
+
+        if normalizedSiblingNames.contains(trimmedName) {
+            return "Type names must stay unique within the machine."
+        }
+
+        return nil
+    }
+
+    private func apply() {
+        guard canApply else {
+            return
+        }
+
+        store.send(
+            .updateTypeName(
+                typeID: type.id,
+                name: nameDraft
+            )
+        )
+    }
+}
+
+private struct StructTypeFieldsEditorView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let type: PayloadTypeDefinition
+    let availableModelTypes: [PayloadTypeDefinition]
+
+    @State private var propertyDrafts: [EditorPropertyDraft]
+
+    init(
+        type: PayloadTypeDefinition,
+        availableModelTypes: [PayloadTypeDefinition]
+    ) {
+        self.type = type
+        self.availableModelTypes = availableModelTypes
+
+        let fields = type.kind.fields
+        _propertyDrafts = State(
+            initialValue: fields.map { field in
+                EditorPropertyDraft(
+                    property: field,
+                    availableModelTypes: availableModelTypes
+                )
+            }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Struct Fields")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("Structs reuse the same payload field editor as states and events, so composing bigger models stays familiar.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Button("Add Field", systemImage: "plus.circle") {
+                    propertyDrafts.append(.init())
+                }
+            }
+
+            if propertyDrafts.isEmpty {
+                Label("No fields yet. Add one to make this struct reusable from state or event payloads.", systemImage: "rectangle.stack.badge.plus")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach($propertyDrafts) { $propertyDraft in
+                        EditorPropertyDraftRowView(
+                            propertyDraft: $propertyDraft,
+                            availableModelTypes: availableModelTypes,
+                            layout: .adaptiveInline,
+                            onEditReferencedType: selectType
+                        ) {
+                            propertyDrafts.removeAll { $0.id == propertyDraft.id }
+                        }
+                    }
+                }
+            }
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Reset", action: resetDrafts)
+                    .disabled(!isDirty)
+
+                Spacer(minLength: 12)
+
+                Button("Apply Fields", action: apply)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canApply)
+            }
+        }
+    }
+
+    private var fields: [PropertyDefinition] {
+        propertyDrafts.propertyDefinitions
+    }
+
+    private var originalFields: [PropertyDefinition] {
+        type.kind.fields
+    }
+
+    private var isDirty: Bool {
+        fields != originalFields
+    }
+
+    private var canApply: Bool {
+        validationMessage == nil && isDirty
+    }
+
+    private var validationMessage: String? {
+        propertyDrafts.validationMessage(
+            emptyNameMessage: "Each field row needs a name before the struct can be updated.",
+            duplicateNameMessage: "Field names must be unique within a struct."
+        )
+    }
+
+    private func resetDrafts() {
+        propertyDrafts = originalFields.map { field in
+            EditorPropertyDraft(
+                property: field,
+                availableModelTypes: availableModelTypes
+            )
+        }
+    }
+
+    private func apply() {
+        guard canApply else {
+            return
+        }
+
+        store.send(
+            .updateType(
+                typeID: type.id,
+                type: PayloadTypeDefinition(
+                    id: type.id,
+                    name: type.name,
+                    kind: .structType(fields: fields)
+                )
+            )
+        )
+    }
+
+    private func selectType(_ typeID: String) {
+        store.send(.selectType(id: typeID))
+    }
+}
+
+private struct EnumCaseDraft: Identifiable, Equatable {
+    let id: String
+    var name: String
+    var payloadType: PropertyType?
+
+    nonisolated init(
+        id: String = UUID().uuidString,
+        name: String = "",
+        payloadType: PropertyType? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.payloadType = payloadType
+    }
+
+    nonisolated init(payloadCase: PayloadEnumCaseDefinition) {
+        self.init(
+            id: payloadCase.id,
+            name: payloadCase.name,
+            payloadType: payloadCase.payloadType
+        )
+    }
+
+    var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var caseDefinition: PayloadEnumCaseDefinition {
+        PayloadEnumCaseDefinition(
+            id: id,
+            name: trimmedName,
+            payloadType: payloadType
+        )
+    }
+}
+
+private struct EnumTypeCasesEditorView: View {
+    @Environment(SwiftMachineStore.self) private var store
+
+    let type: PayloadTypeDefinition
+    let availableModelTypes: [PayloadTypeDefinition]
+
+    @State private var caseDrafts: [EnumCaseDraft]
+    @State private var defaultCaseID: String?
+
+    init(
+        type: PayloadTypeDefinition,
+        availableModelTypes: [PayloadTypeDefinition]
+    ) {
+        self.type = type
+        self.availableModelTypes = availableModelTypes
+
+        let cases = type.kind.cases
+        _caseDrafts = State(
+            initialValue: cases.map(EnumCaseDraft.init(payloadCase:))
+        )
+        _defaultCaseID = State(initialValue: type.kind.defaultCaseID)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Enum Cases")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("Each case can carry no payload or a single primitive or reusable model payload. Use a struct payload when a case needs multiple fields.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Button("Add Case", systemImage: "plus.circle") {
+                    caseDrafts.append(.init())
+                }
+            }
+
+            if caseDrafts.isEmpty {
+                Label("No cases yet. Add one to make this enum selectable in payload properties.", systemImage: "list.bullet.rectangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach($caseDrafts) { $caseDraft in
+                        EnumCaseDraftRowView(
+                            caseDraft: $caseDraft,
+                            availableModelTypes: availableModelTypes,
+                            isDefault: defaultCaseID == caseDraft.id,
+                            onSetDefault: { isEnabled in
+                                defaultCaseID = isEnabled ? caseDraft.id : nil
+                            },
+                            onEditReferencedType: selectType
+                        ) {
+                            if defaultCaseID == caseDraft.id {
+                                defaultCaseID = nil
+                            }
+                            caseDrafts.removeAll { $0.id == caseDraft.id }
+                        }
+                    }
+                }
+            }
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Button("Reset", action: resetDrafts)
+                    .disabled(!isDirty)
+
+                Spacer(minLength: 12)
+
+                Button("Apply Cases", action: apply)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canApply)
+            }
+        }
+    }
+
+    private var cases: [PayloadEnumCaseDefinition] {
+        caseDrafts.map(\.caseDefinition)
+    }
+
+    private var originalCases: [PayloadEnumCaseDefinition] {
+        type.kind.cases
+    }
+
+    private var isDirty: Bool {
+        cases != originalCases || defaultCaseID != type.kind.defaultCaseID
+    }
+
+    private var canApply: Bool {
+        validationMessage == nil && isDirty
+    }
+
+    private var validationMessage: String? {
+        let trimmedNames = caseDrafts.map(\.trimmedName)
+
+        if trimmedNames.contains(where: \.isEmpty) {
+            return "Each enum case needs a name before the enum can be updated."
+        }
+
+        if Set(trimmedNames).count != trimmedNames.count {
+            return "Case names must be unique within an enum."
+        }
+
+        if let defaultCaseID,
+           !caseDrafts.contains(where: { $0.id == defaultCaseID }) {
+            return "The selected default case must still exist."
+        }
+
+        return nil
+    }
+
+    private func resetDrafts() {
+        caseDrafts = originalCases.map(EnumCaseDraft.init(payloadCase:))
+        defaultCaseID = type.kind.defaultCaseID
+    }
+
+    private func apply() {
+        guard canApply else {
+            return
+        }
+
+        store.send(
+            .updateType(
+                typeID: type.id,
+                type: PayloadTypeDefinition(
+                    id: type.id,
+                    name: type.name,
+                    kind: .enumType(
+                        cases: cases,
+                        defaultCaseID: defaultCaseID
+                    )
+                )
+            )
+        )
+    }
+
+    private func selectType(_ typeID: String) {
+        store.send(.selectType(id: typeID))
+    }
+}
+
+private struct EnumCaseDraftRowView: View {
+    @Binding var caseDraft: EnumCaseDraft
+    let availableModelTypes: [PayloadTypeDefinition]
+    let isDefault: Bool
+    let onSetDefault: (Bool) -> Void
+    let onEditReferencedType: (String) -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Case name", text: $caseDraft.name)
+                .textFieldStyle(.roundedBorder)
+
+            HStack(alignment: .center, spacing: 12) {
+                Toggle("Payload", isOn: hasPayloadBinding)
+                    .toggleStyle(.switch)
+
+                if caseDraft.payloadType != nil {
+                    PropertyTypePicker(
+                        selection: payloadTypeBinding,
+                        availableModelTypes: availableModelTypes
+                    )
+                    .frame(maxWidth: 220, alignment: .leading)
+                }
+
+                Toggle(
+                    "Default Case",
+                    isOn: Binding(
+                        get: { isDefault },
+                        set: onSetDefault
+                    )
+                )
+                .toggleStyle(.switch)
+
+                Spacer(minLength: 0)
+
+                Button(role: .destructive, action: remove) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Remove case")
+            }
+
+            if let referencedTypeID = caseDraft.payloadType?.referencedTypeID {
+                Button("Edit Payload Type") {
+                    onEditReferencedType(referencedTypeID)
+                }
+                .buttonStyle(.link)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+        }
+    }
+
+    private var hasPayloadBinding: Binding<Bool> {
+        Binding(
+            get: { caseDraft.payloadType != nil },
+            set: { hasPayload in
+                caseDraft.payloadType = hasPayload ? .string : nil
+            }
+        )
+    }
+
+    private var payloadTypeBinding: Binding<PropertyType> {
+        Binding(
+            get: { caseDraft.payloadType ?? .string },
+            set: { caseDraft.payloadType = $0 }
+        )
+    }
+}
+
 private struct EventPropertiesEditorView: View {
     @Environment(SwiftMachineStore.self) private var store
 
     let event: EventDefinition
+    let availableModelTypes: [PayloadTypeDefinition]
 
     @State private var propertyDrafts: [EditorPropertyDraft]
 
-    init(event: EventDefinition) {
+    init(
+        event: EventDefinition,
+        availableModelTypes: [PayloadTypeDefinition]
+    ) {
         self.event = event
+        self.availableModelTypes = availableModelTypes
         _propertyDrafts = State(
-            initialValue: event.properties.map(EditorPropertyDraft.init(property:))
+            initialValue: event.properties.map { property in
+                EditorPropertyDraft(
+                    property: property,
+                    availableModelTypes: availableModelTypes
+                )
+            }
         )
     }
 
@@ -1618,7 +2018,12 @@ private struct EventPropertiesEditorView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach($propertyDrafts) { $propertyDraft in
-                        EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                        EditorPropertyDraftRowView(
+                            propertyDraft: $propertyDraft,
+                            availableModelTypes: availableModelTypes,
+                            layout: .inspectorCompact,
+                            onEditReferencedType: selectType
+                        ) {
                             removeProperty(propertyDraft.id)
                         }
                     }
@@ -1670,8 +2075,17 @@ private struct EventPropertiesEditorView: View {
         propertyDrafts.removeAll { $0.id == id }
     }
 
+    private func selectType(_ typeID: String) {
+        store.send(.selectType(id: typeID))
+    }
+
     private func resetDrafts() {
-        propertyDrafts = event.properties.map(EditorPropertyDraft.init(property:))
+        propertyDrafts = event.properties.map { property in
+            EditorPropertyDraft(
+                property: property,
+                availableModelTypes: availableModelTypes
+            )
+        }
     }
 
     private func apply() {
@@ -1692,13 +2106,23 @@ private struct StatePropertiesEditorView: View {
     @Environment(SwiftMachineStore.self) private var store
 
     let state: StateDefinition
+    let availableModelTypes: [PayloadTypeDefinition]
 
     @State private var propertyDrafts: [EditorPropertyDraft]
 
-    init(state: StateDefinition) {
+    init(
+        state: StateDefinition,
+        availableModelTypes: [PayloadTypeDefinition]
+    ) {
         self.state = state
+        self.availableModelTypes = availableModelTypes
         _propertyDrafts = State(
-            initialValue: state.properties.map(EditorPropertyDraft.init(property:))
+            initialValue: state.properties.map { property in
+                EditorPropertyDraft(
+                    property: property,
+                    availableModelTypes: availableModelTypes
+                )
+            }
         )
     }
 
@@ -1729,7 +2153,12 @@ private struct StatePropertiesEditorView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach($propertyDrafts) { $propertyDraft in
-                        EditorPropertyDraftRowView(propertyDraft: $propertyDraft) {
+                        EditorPropertyDraftRowView(
+                            propertyDraft: $propertyDraft,
+                            availableModelTypes: availableModelTypes,
+                            layout: .inspectorCompact,
+                            onEditReferencedType: selectType
+                        ) {
                             removeProperty(propertyDraft.id)
                         }
                     }
@@ -1744,7 +2173,12 @@ private struct StatePropertiesEditorView: View {
 
             HStack {
                 Button("Reset") {
-                    propertyDrafts = state.properties.map(EditorPropertyDraft.init(property:))
+                    propertyDrafts = state.properties.map { property in
+                        EditorPropertyDraft(
+                            property: property,
+                            availableModelTypes: availableModelTypes
+                        )
+                    }
                 }
                 .disabled(!isDirty)
 
@@ -1778,6 +2212,10 @@ private struct StatePropertiesEditorView: View {
 
     private func removeProperty(_ id: String) {
         propertyDrafts.removeAll { $0.id == id }
+    }
+
+    private func selectType(_ typeID: String) {
+        store.send(.selectType(id: typeID))
     }
 
     private func apply() {

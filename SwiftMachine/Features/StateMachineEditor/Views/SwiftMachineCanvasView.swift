@@ -219,7 +219,8 @@ private struct InitialStateSetupStepView: View {
     let machineName: String
 
     @State private var initialStateName = ""
-    @State private var propertyDrafts: [InitialStatePropertyDraft] = []
+    @State private var typeDrafts: [InitialStateTypeDraft] = []
+    @State private var propertyDrafts: [EditorPropertyDraft] = []
     @FocusState private var isInitialStateNameFocused: Bool
 
     var body: some View {
@@ -247,6 +248,50 @@ private struct InitialStateSetupStepView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
+                        Text("Reusable Types")
+                            .font(.headline)
+
+                        Text("Define reusable structs and enums here first, then assign them to the initial state's payload properties.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 8) {
+                        Button("Add Struct", systemImage: "square.on.square") {
+                            addStructType()
+                        }
+
+                        Button("Add Enum", systemImage: "list.bullet.rectangle") {
+                            addEnumType()
+                        }
+                    }
+                }
+
+                if typeDrafts.isEmpty {
+                    Label("No reusable types yet. Add one when the initial state needs a composed payload.", systemImage: "square.stack.3d.up")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach($typeDrafts) { $typeDraft in
+                            InitialStateTypeDraftView(
+                                typeDraft: $typeDraft,
+                                availableModelTypes: availableModelTypes(excluding: typeDraft.id),
+                                canRemove: !typeIsReferenced(typeDraft.id)
+                            ) {
+                                removeType(typeDraft.id)
+                            }
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Initial State Properties")
                             .font(.headline)
                     }
@@ -265,7 +310,11 @@ private struct InitialStateSetupStepView: View {
                 } else {
                     VStack(spacing: 10) {
                         ForEach($propertyDrafts) { $propertyDraft in
-                            PropertyDraftRowView(propertyDraft: $propertyDraft) {
+                            EditorPropertyDraftRowView(
+                                propertyDraft: $propertyDraft,
+                                availableModelTypes: typeDefinitions,
+                                layout: .adaptiveInline
+                            ) {
                                 removeProperty(propertyDraft.id)
                             }
                         }
@@ -297,23 +346,33 @@ private struct InitialStateSetupStepView: View {
     }
 
     private var validationMessage: String? {
-        let trimmedPropertyNames = propertyDrafts.map(\.trimmedName)
-
-        if trimmedPropertyNames.contains(where: \.isEmpty) {
-            return "Each property row needs a name before the machine can be created."
+        if let propertyValidationMessage = propertyDrafts.validationMessage(
+            emptyNameMessage: "Each property row needs a name before the machine can be created.",
+            duplicateNameMessage: "Property names must be unique within the initial state."
+        ) {
+            return propertyValidationMessage
         }
 
-        if Set(trimmedPropertyNames).count != trimmedPropertyNames.count {
-            return "Property names must be unique within the initial state."
-        }
+        let placeholderStateName = trimmedInitialStateName.isEmpty ? "Initial State" : trimmedInitialStateName
+        let draftMachine = StateMachineDefinition(
+            id: "initial-state-draft",
+            name: machineName,
+            initialStateID: "initial-state",
+            types: typeDefinitions,
+            states: [
+                StateDefinition(
+                    id: "initial-state",
+                    name: placeholderStateName,
+                    properties: propertyDefinitions
+                )
+            ],
+            events: [],
+            transitions: []
+        )
 
-        if let defaultValueValidationMessage = propertyDrafts
-            .compactMap(\.defaultValueValidationMessage)
-            .first {
-            return defaultValueValidationMessage
-        }
-
-        return nil
+        return draftMachine.validate()
+            .compactMap(wizardValidationMessage(for:))
+            .first
     }
 
     private var trimmedInitialStateName: String {
@@ -321,11 +380,100 @@ private struct InitialStateSetupStepView: View {
     }
 
     private var propertyDefinitions: [PropertyDefinition] {
-        propertyDrafts.map(\.propertyDefinition)
+        propertyDrafts.propertyDefinitions
     }
 
-    private func removeProperty(_ id: UUID) {
+    private var typeDefinitions: [PayloadTypeDefinition] {
+        typeDrafts.map(\.typeDefinition)
+    }
+
+    private func availableModelTypes(excluding typeID: String) -> [PayloadTypeDefinition] {
+        typeDefinitions.filter { $0.id != typeID }
+    }
+
+    private func removeProperty(_ id: String) {
         propertyDrafts.removeAll { $0.id == id }
+    }
+
+    private func addStructType() {
+        typeDrafts.append(
+            .structType(
+                name: suggestedTypeName(prefix: "Struct"),
+                fields: []
+            )
+        )
+    }
+
+    private func addEnumType() {
+        typeDrafts.append(
+            .enumType(
+                name: suggestedTypeName(prefix: "Enum"),
+                cases: [],
+                defaultCaseID: nil
+            )
+        )
+    }
+
+    private func removeType(_ typeID: String) {
+        guard !typeIsReferenced(typeID) else {
+            return
+        }
+
+        typeDrafts.removeAll { $0.id == typeID }
+    }
+
+    private func typeIsReferenced(_ typeID: String) -> Bool {
+        if propertyDrafts.contains(where: { $0.type.referencedTypeID == typeID }) {
+            return true
+        }
+
+        return typeDrafts.contains { draft in
+            guard draft.id != typeID else {
+                return false
+            }
+
+            return draft.referencesType(typeID)
+        }
+    }
+
+    private func suggestedTypeName(prefix: String) -> String {
+        let existingNames = Set(
+            typeDrafts.map {
+                $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        )
+
+        var index = 1
+        while existingNames.contains("\(prefix) \(index)") {
+            index += 1
+        }
+
+        return "\(prefix) \(index)"
+    }
+
+    private func wizardValidationMessage(
+        for error: StateMachineDefinition.ValidationError
+    ) -> String? {
+        switch error {
+        case .emptyTypeName:
+            return "Each reusable type needs a name before the machine can be created."
+        case .duplicateTypeName:
+            return "Reusable type names must be unique within the machine."
+        case .duplicateTypePropertyName:
+            return "Field names must be unique within a reusable struct."
+        case .emptyTypeCaseName:
+            return "Each enum case needs a name before the machine can be created."
+        case .duplicateTypeCaseName:
+            return "Case names must be unique within a reusable enum."
+        case .unknownTypeDefaultCase:
+            return "The selected default enum case must still exist."
+        case .unknownPropertyTypeReference:
+            return "One or more properties reference a missing reusable type."
+        case .recursiveTypeReference:
+            return "Reusable types cannot reference themselves recursively."
+        default:
+            return nil
+        }
     }
 
     private func submit() {
@@ -340,7 +488,8 @@ private struct InitialStateSetupStepView: View {
         store.send(
             .setInitialState(
                 name: initialStateName,
-                properties: propertyDefinitions
+                properties: propertyDefinitions,
+                types: typeDefinitions
             )
         )
     }
@@ -379,69 +528,146 @@ private struct WizardCard<Content: View>: View {
     }
 }
 
-private struct InitialStatePropertyDraft: Identifiable {
-    let id = UUID()
-    var name = ""
-    var type: PropertyType = .string
-    var isOptional = false
-    var defaultValue = PropertyDefaultValueDraft()
-
-    var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
+private struct InitialStateTypeDraft: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case structType(fields: [EditorPropertyDraft])
+        case enumType(cases: [InitialStateEnumCaseDraft], defaultCaseID: String?)
     }
 
-    var propertyDefinition: PropertyDefinition {
-        PropertyDefinition(
-            name: trimmedName,
-            type: type,
-            isOptional: isOptional,
-            defaultValue: defaultValue.literalValue(for: type)
+    let id: String
+    var name: String
+    var kind: Kind
+
+    nonisolated init(
+        id: String = UUID().uuidString,
+        name: String,
+        kind: Kind
+    ) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+    }
+
+    nonisolated static func structType(
+        name: String,
+        fields: [EditorPropertyDraft]
+    ) -> InitialStateTypeDraft {
+        InitialStateTypeDraft(
+            name: name,
+            kind: .structType(fields: fields)
         )
     }
 
-    var defaultValueValidationMessage: String? {
-        defaultValue.validationMessage(
-            for: type,
-            propertyName: trimmedName
+    nonisolated static func enumType(
+        name: String,
+        cases: [InitialStateEnumCaseDraft],
+        defaultCaseID: String?
+    ) -> InitialStateTypeDraft {
+        InitialStateTypeDraft(
+            name: name,
+            kind: .enumType(cases: cases, defaultCaseID: defaultCaseID)
+        )
+    }
+
+    var typeDefinition: PayloadTypeDefinition {
+        PayloadTypeDefinition(
+            id: id,
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            kind: payloadTypeKind
+        )
+    }
+
+    var kindTitle: String {
+        switch kind {
+        case .structType:
+            return "Struct"
+        case .enumType:
+            return "Enum"
+        }
+    }
+
+    func referencesType(_ typeID: String) -> Bool {
+        switch kind {
+        case .structType(let fields):
+            return fields.contains(where: { $0.type.referencedTypeID == typeID })
+        case .enumType(let cases, _):
+            return cases.contains(where: { $0.payloadType?.referencedTypeID == typeID })
+        }
+    }
+
+    private var payloadTypeKind: PayloadTypeKind {
+        switch kind {
+        case .structType(let fields):
+            return .structType(fields: fields.propertyDefinitions)
+        case .enumType(let cases, let defaultCaseID):
+            return .enumType(
+                cases: cases.map(\.caseDefinition),
+                defaultCaseID: defaultCaseID
+            )
+        }
+    }
+}
+
+private struct InitialStateEnumCaseDraft: Identifiable, Equatable {
+    let id: String
+    var name: String
+    var payloadType: PropertyType?
+
+    nonisolated init(
+        id: String = UUID().uuidString,
+        name: String = "",
+        payloadType: PropertyType? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.payloadType = payloadType
+    }
+
+    var caseDefinition: PayloadEnumCaseDefinition {
+        PayloadEnumCaseDefinition(
+            id: id,
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            payloadType: payloadType
         )
     }
 }
 
-private struct PropertyDraftRowView: View {
-    @Binding var propertyDraft: InitialStatePropertyDraft
+private struct InitialStateTypeDraftView: View {
+    @Binding var typeDraft: InitialStateTypeDraft
+    let availableModelTypes: [PayloadTypeDefinition]
+    let canRemove: Bool
     let remove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                TextField("Property name", text: $propertyDraft.name)
-                    .textFieldStyle(.roundedBorder)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("Type name", text: nameBinding)
+                        .textFieldStyle(.roundedBorder)
 
-                Picker("Type", selection: $propertyDraft.type) {
-                    ForEach(PropertyType.allCases, id: \.self) { propertyType in
-                        Text(propertyType.rawValue.capitalized)
-                            .tag(propertyType)
-                    }
+                    EditorBadge(
+                        text: typeDraft.kindTitle,
+                        tint: kindTint
+                    )
                 }
-                .pickerStyle(.menu)
-                .frame(width: 130)
 
-                Toggle("Optional", isOn: $propertyDraft.isOptional)
-                    .toggleStyle(.switch)
+                Spacer(minLength: 12)
 
                 Button(role: .destructive, action: remove) {
                     Image(systemName: "minus.circle.fill")
                         .font(.title3)
                 }
                 .buttonStyle(.plain)
-                .help("Remove property")
+                .disabled(!canRemove)
+                .help(canRemove ? "Remove type" : "This type is still referenced by another property or type.")
             }
 
-            PropertyDefaultValueEditor(
-                type: propertyDraft.type,
-                draft: $propertyDraft.defaultValue,
-                layout: .inline
-            )
+            switch kindBinding.wrappedValue {
+            case .structType:
+                structFieldsEditor
+            case .enumType:
+                enumCasesEditor
+            }
         }
         .padding(14)
         .background(
@@ -452,5 +678,276 @@ private struct PropertyDraftRowView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
         }
+    }
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { typeDraft.name },
+            set: { typeDraft.name = $0 }
+        )
+    }
+
+    private var kindTint: Color {
+        switch typeDraft.kind {
+        case .structType:
+            return .green
+        case .enumType:
+            return .orange
+        }
+    }
+
+    private var kindBinding: Binding<InitialStateTypeDraft.Kind> {
+        Binding(
+            get: { typeDraft.kind },
+            set: { typeDraft.kind = $0 }
+        )
+    }
+
+    @ViewBuilder
+    private var structFieldsEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Struct Fields")
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                Button("Add Field", systemImage: "plus.circle") {
+                    guard case .structType(let fields) = typeDraft.kind else {
+                        return
+                    }
+                    typeDraft.kind = .structType(fields: fields + [.init()])
+                }
+            }
+
+            if case .structType(let fields) = typeDraft.kind {
+                if fields.isEmpty {
+                    Label("No fields yet. Add one to make this struct usable from initial state properties.", systemImage: "rectangle.stack.badge.plus")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(structFieldBindings) { fieldBinding in
+                        EditorPropertyDraftRowView(
+                            propertyDraft: fieldBinding,
+                            availableModelTypes: availableModelTypes,
+                            layout: .adaptiveInline
+                        ) {
+                            removeStructField(fieldBinding.wrappedValue.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var enumCasesEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Enum Cases")
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                Button("Add Case", systemImage: "plus.circle") {
+                    guard case .enumType(let cases, let defaultCaseID) = typeDraft.kind else {
+                        return
+                    }
+                    typeDraft.kind = .enumType(
+                        cases: cases + [.init()],
+                        defaultCaseID: defaultCaseID
+                    )
+                }
+            }
+
+            if case .enumType(let cases, _) = typeDraft.kind {
+                if cases.isEmpty {
+                    Label("No cases yet. Add one to make this enum selectable from the initial state.", systemImage: "list.bullet.rectangle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(enumCaseBindings) { caseBinding in
+                        InitialStateEnumCaseDraftRowView(
+                            caseDraft: caseBinding,
+                            availableModelTypes: availableModelTypes,
+                            isDefault: defaultCaseID == caseBinding.wrappedValue.id,
+                            onSetDefault: { isEnabled in
+                                setDefaultCase(caseBinding.wrappedValue.id, isEnabled: isEnabled)
+                            }
+                        ) {
+                            removeEnumCase(caseBinding.wrappedValue.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var defaultCaseID: String? {
+        guard case .enumType(_, let defaultCaseID) = typeDraft.kind else {
+            return nil
+        }
+
+        return defaultCaseID
+    }
+
+    private var structFieldBindings: [Binding<EditorPropertyDraft>] {
+        guard case .structType(let fields) = typeDraft.kind else {
+            return []
+        }
+
+        return fields.indices.map { index in
+            Binding(
+                get: {
+                    guard case .structType(let currentFields) = typeDraft.kind else {
+                        return fields[index]
+                    }
+
+                    return currentFields[index]
+                },
+                set: { updatedField in
+                    guard case .structType(var currentFields) = typeDraft.kind,
+                          currentFields.indices.contains(index) else {
+                        return
+                    }
+
+                    currentFields[index] = updatedField
+                    typeDraft.kind = .structType(fields: currentFields)
+                }
+            )
+        }
+    }
+
+    private var enumCaseBindings: [Binding<InitialStateEnumCaseDraft>] {
+        guard case .enumType(let cases, _) = typeDraft.kind else {
+            return []
+        }
+
+        return cases.indices.map { index in
+            Binding(
+                get: {
+                    guard case .enumType(let currentCases, _) = typeDraft.kind else {
+                        return cases[index]
+                    }
+
+                    return currentCases[index]
+                },
+                set: { updatedCase in
+                    guard case .enumType(var currentCases, let defaultCaseID) = typeDraft.kind,
+                          currentCases.indices.contains(index) else {
+                        return
+                    }
+
+                    currentCases[index] = updatedCase
+                    typeDraft.kind = .enumType(
+                        cases: currentCases,
+                        defaultCaseID: defaultCaseID
+                    )
+                }
+            )
+        }
+    }
+
+    private func removeStructField(_ fieldID: String) {
+        guard case .structType(let fields) = typeDraft.kind else {
+            return
+        }
+
+        typeDraft.kind = .structType(
+            fields: fields.filter { $0.id != fieldID }
+        )
+    }
+
+    private func setDefaultCase(_ caseID: String, isEnabled: Bool) {
+        guard case .enumType(let cases, _) = typeDraft.kind else {
+            return
+        }
+
+        typeDraft.kind = .enumType(
+            cases: cases,
+            defaultCaseID: isEnabled ? caseID : nil
+        )
+    }
+
+    private func removeEnumCase(_ caseID: String) {
+        guard case .enumType(let cases, let defaultCaseID) = typeDraft.kind else {
+            return
+        }
+
+        typeDraft.kind = .enumType(
+            cases: cases.filter { $0.id != caseID },
+            defaultCaseID: defaultCaseID == caseID ? nil : defaultCaseID
+        )
+    }
+}
+
+private struct InitialStateEnumCaseDraftRowView: View {
+    @Binding var caseDraft: InitialStateEnumCaseDraft
+    let availableModelTypes: [PayloadTypeDefinition]
+    let isDefault: Bool
+    let onSetDefault: (Bool) -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Case name", text: $caseDraft.name)
+                .textFieldStyle(.roundedBorder)
+
+            HStack(alignment: .center, spacing: 12) {
+                Toggle("Payload", isOn: hasPayloadBinding)
+                    .toggleStyle(.switch)
+
+                if caseDraft.payloadType != nil {
+                    PropertyTypePicker(
+                        selection: payloadTypeBinding,
+                        availableModelTypes: availableModelTypes
+                    )
+                    .frame(maxWidth: 220, alignment: .leading)
+                }
+
+                Toggle(
+                    "Default Case",
+                    isOn: Binding(
+                        get: { isDefault },
+                        set: onSetDefault
+                    )
+                )
+                .toggleStyle(.switch)
+
+                Spacer(minLength: 0)
+
+                Button(role: .destructive, action: remove) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Remove case")
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.primary.opacity(0.03))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+        }
+    }
+
+    private var hasPayloadBinding: Binding<Bool> {
+        Binding(
+            get: { caseDraft.payloadType != nil },
+            set: { hasPayload in
+                caseDraft.payloadType = hasPayload ? .string : nil
+            }
+        )
+    }
+
+    private var payloadTypeBinding: Binding<PropertyType> {
+        Binding(
+            get: { caseDraft.payloadType ?? .string },
+            set: { caseDraft.payloadType = $0 }
+        )
     }
 }
