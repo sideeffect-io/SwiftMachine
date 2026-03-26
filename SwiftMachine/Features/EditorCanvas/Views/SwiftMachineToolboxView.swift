@@ -16,6 +16,7 @@ struct SwiftMachineToolboxView: View {
                 header
 
                 if editor != nil {
+                    StateMachineExportView()
                     StatePaletteView(
                         selectedStateID: store.selectedStateID,
                         sendEditorCanvasCommand: store.sendEditorCanvasCommand

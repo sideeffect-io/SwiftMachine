@@ -10,6 +10,7 @@ import SwiftUI
 struct AppCompositionRoot: Sendable {
     let editorCanvasStoreFactory: EditorCanvasStoreFactory
     let swiftMachineWizardStoreFactory: SwiftMachineWizardStoreFactory
+    let stateMachineExportStoreFactory: StateMachineExportStoreFactory
     let statePaletteStoreFactory: StatePaletteStoreFactory
     let eventPaletteStoreFactory: EventPaletteStoreFactory
     let typePaletteStoreFactory: TypePaletteStoreFactory
@@ -24,6 +25,7 @@ struct AppCompositionRoot: Sendable {
     ) {
         editorCanvasStoreFactory = .live(service: service)
         swiftMachineWizardStoreFactory = .live(service: service)
+        stateMachineExportStoreFactory = .live(service: service)
         statePaletteStoreFactory = .live(service: service)
         eventPaletteStoreFactory = .live(service: service)
         typePaletteStoreFactory = .live(service: service)
@@ -40,6 +42,7 @@ extension View {
         self
             .environment(\.editorCanvasStoreFactory, compositionRoot.editorCanvasStoreFactory)
             .environment(\.swiftMachineWizardStoreFactory, compositionRoot.swiftMachineWizardStoreFactory)
+            .environment(\.stateMachineExportStoreFactory, compositionRoot.stateMachineExportStoreFactory)
             .environment(\.statePaletteStoreFactory, compositionRoot.statePaletteStoreFactory)
             .environment(\.eventPaletteStoreFactory, compositionRoot.eventPaletteStoreFactory)
             .environment(\.typePaletteStoreFactory, compositionRoot.typePaletteStoreFactory)
