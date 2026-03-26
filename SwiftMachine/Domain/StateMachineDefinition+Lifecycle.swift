@@ -8,7 +8,7 @@
 import Foundation
 
 extension StateMachineDefinition {
-    static func makeNew(
+    nonisolated static func makeNew(
         name: String,
         initialStateName: String,
         initialStateProperties: [PropertyDefinition],
@@ -54,35 +54,35 @@ extension StateMachineDefinition {
         return stateMachine
     }
 
-    func nextAvailableStateName() -> String {
+    nonisolated func nextAvailableStateName() -> String {
         Self.nextAvailableName(
             prefix: "State",
             existingNames: states.map(\.name)
         )
     }
 
-    func nextAvailableEventName() -> String {
+    nonisolated func nextAvailableEventName() -> String {
         Self.nextAvailableName(
             prefix: "Event",
             existingNames: events.map(\.name)
         )
     }
 
-    func nextAvailableStructTypeName() -> String {
+    nonisolated func nextAvailableStructTypeName() -> String {
         Self.nextAvailableName(
             prefix: "Struct",
             existingNames: types.map(\.name)
         )
     }
 
-    func nextAvailableEnumTypeName() -> String {
+    nonisolated func nextAvailableEnumTypeName() -> String {
         Self.nextAvailableName(
             prefix: "Enum",
             existingNames: types.map(\.name)
         )
     }
 
-    func addingState() -> StateMachineDefinition {
+    nonisolated func addingState() -> StateMachineDefinition {
         guard let result = addingState(
             named: nextAvailableStateName(),
             properties: []
@@ -93,7 +93,7 @@ extension StateMachineDefinition {
         return result.definition
     }
 
-    func addingState(
+    nonisolated func addingState(
         named proposedName: String,
         properties: [PropertyDefinition]
     ) -> (definition: StateMachineDefinition, stateID: String)? {
@@ -131,7 +131,7 @@ extension StateMachineDefinition {
         return (definition: updatedDefinition, stateID: newState.id)
     }
 
-    func removingState(
+    nonisolated func removingState(
         id stateID: String
     ) -> StateMachineDefinition? {
         guard states.count > 1,
@@ -164,7 +164,7 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func renamingState(
+    nonisolated func renamingState(
         id stateID: String,
         to proposedName: String
     ) -> StateMachineDefinition? {
@@ -218,7 +218,7 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func updatingProperties(
+    nonisolated func updatingProperties(
         _ properties: [PropertyDefinition],
         forStateID stateID: String
     ) -> StateMachineDefinition? {
@@ -273,14 +273,14 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func addingEvent() -> (definition: StateMachineDefinition, eventID: String)? {
+    nonisolated func addingEvent() -> (definition: StateMachineDefinition, eventID: String)? {
         addingEvent(
             named: nextAvailableEventName(),
             properties: []
         )
     }
 
-    func addingEvent(
+    nonisolated func addingEvent(
         named eventName: String,
         properties: [PropertyDefinition]
     ) -> (definition: StateMachineDefinition, eventID: String)? {
@@ -318,7 +318,7 @@ extension StateMachineDefinition {
         return (definition: updatedDefinition, eventID: newEvent.id)
     }
 
-    func renamingEvent(
+    nonisolated func renamingEvent(
         id eventID: String,
         to proposedName: String
     ) -> StateMachineDefinition? {
@@ -364,7 +364,7 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func removingEvent(
+    nonisolated func removingEvent(
         id eventID: String
     ) -> StateMachineDefinition? {
         guard events.contains(where: { $0.id == eventID }) else {
@@ -390,7 +390,7 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func updatingProperties(
+    nonisolated func updatingProperties(
         _ properties: [PropertyDefinition],
         forEventID eventID: String
     ) -> StateMachineDefinition? {
@@ -445,21 +445,21 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func addingStructType() -> (definition: StateMachineDefinition, typeID: String)? {
+    nonisolated func addingStructType() -> (definition: StateMachineDefinition, typeID: String)? {
         addingType(
             named: nextAvailableStructTypeName(),
             kind: .structType(fields: [])
         )
     }
 
-    func addingEnumType() -> (definition: StateMachineDefinition, typeID: String)? {
+    nonisolated func addingEnumType() -> (definition: StateMachineDefinition, typeID: String)? {
         addingType(
             named: nextAvailableEnumTypeName(),
             kind: .enumType(cases: [], defaultCaseID: nil)
         )
     }
 
-    func addingType(
+    nonisolated func addingType(
         named proposedName: String,
         kind: PayloadTypeKind
     ) -> (definition: StateMachineDefinition, typeID: String)? {
@@ -494,7 +494,7 @@ extension StateMachineDefinition {
         return (definition: updatedDefinition, typeID: normalizedType.id)
     }
 
-    func renamingType(
+    nonisolated func renamingType(
         id typeID: String,
         to proposedName: String
     ) -> StateMachineDefinition? {
@@ -512,7 +512,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func updatingType(
+    nonisolated func updatingType(
         _ updatedType: PayloadTypeDefinition,
         forTypeID typeID: String
     ) -> StateMachineDefinition? {
@@ -565,7 +565,7 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func removingType(
+    nonisolated func removingType(
         id typeID: String
     ) -> StateMachineDefinition? {
         guard types.contains(where: { $0.id == typeID }),
@@ -601,7 +601,7 @@ extension StateMachineDefinition {
         return updatedDefinition
     }
 
-    func addingTransition(
+    nonisolated func addingTransition(
         sourceStateID: String,
         eventID: String,
         targetStateID: String,
@@ -648,7 +648,7 @@ extension StateMachineDefinition {
         return (definition: updatedDefinition, transitionID: newTransition.id)
     }
 
-    func assigningEvent(
+    nonisolated func assigningEvent(
         eventID: String,
         toTransitionID transitionID: String
     ) -> StateMachineDefinition? {
@@ -659,7 +659,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func assigningNewEvent(
+    nonisolated func assigningNewEvent(
         named eventName: String,
         properties: [PropertyDefinition],
         toTransitionID transitionID: String
@@ -681,7 +681,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func assigningSourceState(
+    nonisolated func assigningSourceState(
         stateID: String,
         toTransitionID transitionID: String
     ) -> StateMachineDefinition? {
@@ -692,7 +692,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func assigningTargetState(
+    nonisolated func assigningTargetState(
         stateID: String,
         toTransitionID transitionID: String
     ) -> StateMachineDefinition? {
@@ -703,7 +703,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func updatingTargetStateCreation(
+    nonisolated func updatingTargetStateCreation(
         _ targetStateCreation: TransitionTargetStateCreation,
         forTransitionID transitionID: String
     ) -> StateMachineDefinition? {
@@ -713,7 +713,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func assigningGuard(
+    nonisolated func assigningGuard(
         _ guardReference: GuardReference,
         toTransitionID transitionID: String
     ) -> StateMachineDefinition? {
@@ -729,7 +729,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func removingGuard(
+    nonisolated func removingGuard(
         fromTransitionID transitionID: String
     ) -> StateMachineDefinition? {
         updatingTransition(
@@ -738,7 +738,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func addingEffect(
+    nonisolated func addingEffect(
         _ effectReference: EffectReference,
         toTransitionID transitionID: String
     ) -> StateMachineDefinition? {
@@ -756,7 +756,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func removingEffect(
+    nonisolated func removingEffect(
         at index: Int,
         fromTransitionID transitionID: String
     ) -> StateMachineDefinition? {
@@ -774,7 +774,7 @@ extension StateMachineDefinition {
         )
     }
 
-    func updatingEffect(
+    nonisolated func updatingEffect(
         _ effectReference: EffectReference,
         at index: Int,
         inTransitionID transitionID: String
@@ -804,7 +804,7 @@ extension StateMachineDefinition {
         )
     }
 
-    private func updatingTransition(
+    nonisolated private func updatingTransition(
         transitionID: String,
         sourceStateID: String? = nil,
         eventID: String? = nil,
@@ -884,7 +884,7 @@ extension StateMachineDefinition {
         case keep
         case set(GuardReference?)
 
-        func resolve(from currentValue: GuardReference?) -> GuardReference? {
+        nonisolated func resolve(from currentValue: GuardReference?) -> GuardReference? {
             switch self {
             case .keep:
                 return currentValue
@@ -898,7 +898,7 @@ extension StateMachineDefinition {
         case keep
         case set([EffectReference])
 
-        func resolve(from currentValue: [EffectReference]) -> [EffectReference] {
+        nonisolated func resolve(from currentValue: [EffectReference]) -> [EffectReference] {
             switch self {
             case .keep:
                 return currentValue
@@ -913,7 +913,7 @@ extension StateMachineDefinition {
         case set(TransitionTargetStateCreation)
         case reconcile
 
-        func resolve(
+        nonisolated func resolve(
             currentValue: TransitionTargetStateCreation,
             sourceStateID: String,
             eventID: String,
@@ -949,7 +949,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private static func nextAvailableName(
+    nonisolated private static func nextAvailableName(
         prefix: String,
         existingNames: [String]
     ) -> String {
@@ -1034,7 +1034,7 @@ extension StateMachineDefinition {
         )
     }
 
-    private static func isTypeReferenced(
+    nonisolated private static func isTypeReferenced(
         _ typeID: String,
         inTypes types: [PayloadTypeDefinition],
         states: [StateDefinition],
@@ -1066,7 +1066,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private func reconciledTransitions(
+    nonisolated private func reconciledTransitions(
         types: [PayloadTypeDefinition],
         states: [StateDefinition],
         events: [EventDefinition],
@@ -1098,7 +1098,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private static func reconciledTargetStateCreation(
+    nonisolated private static func reconciledTargetStateCreation(
         existing: TransitionTargetStateCreation,
         sourceStateID: String,
         eventID: String,
@@ -1162,7 +1162,7 @@ extension StateMachineDefinition {
         )
     }
 
-    private static func reconciledValueSource(
+    nonisolated private static func reconciledValueSource(
         existing: TransitionTargetStateValueSource?,
         targetName: String,
         targetType: PropertyType,
@@ -1277,7 +1277,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private static func suggestedValueSource(
+    nonisolated private static func suggestedValueSource(
         forName targetName: String,
         targetType: PropertyType,
         targetSchema: ResolvedPropertySchema,
@@ -1365,7 +1365,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private static func matchingReference(
+    nonisolated private static func matchingReference(
         named targetName: String,
         type: PropertyType,
         schema: ResolvedPropertySchema,
@@ -1380,7 +1380,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private static func isValid(
+    nonisolated private static func isValid(
         valueSource: TransitionTargetStateValueSource,
         expectedType: PropertyType,
         expectedSchema: ResolvedPropertySchema,
@@ -1503,7 +1503,7 @@ private extension PayloadEnumCaseDefinition {
 }
 
 private extension StateMachineDefinition {
-    static func reconciledStates(
+    nonisolated static func reconciledStates(
         _ states: [StateDefinition],
         types: [PayloadTypeDefinition]
     ) -> [StateDefinition] {
@@ -1519,7 +1519,7 @@ private extension StateMachineDefinition {
         }
     }
 
-    static func reconciledEvents(
+    nonisolated static func reconciledEvents(
         _ events: [EventDefinition],
         types: [PayloadTypeDefinition]
     ) -> [EventDefinition] {
@@ -1535,7 +1535,7 @@ private extension StateMachineDefinition {
         }
     }
 
-    static func reconciledProperties(
+    nonisolated static func reconciledProperties(
         _ properties: [PropertyDefinition],
         types: [PayloadTypeDefinition]
     ) -> [PropertyDefinition] {
@@ -1568,7 +1568,7 @@ private extension StateMachineDefinition {
         }
     }
 
-    static func reconciledPropertyDefaultValue(
+    nonisolated static func reconciledPropertyDefaultValue(
         _ existing: PropertyDefaultValue?,
         expectedType: PropertyType,
         expectedSchema: ResolvedPropertySchema
@@ -1650,7 +1650,7 @@ private extension StateMachineDefinition {
 }
 
 private extension GuardReference {
-    var normalizedForEditor: GuardReference {
+    nonisolated var normalizedForEditor: GuardReference {
         let trimmedDescription = description?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return GuardReference(
@@ -1661,7 +1661,7 @@ private extension GuardReference {
 }
 
 private extension EffectReference {
-    var normalizedForEditor: EffectReference {
+    nonisolated var normalizedForEditor: EffectReference {
         let trimmedDescription = description?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return EffectReference(

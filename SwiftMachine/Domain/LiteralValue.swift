@@ -13,7 +13,7 @@ enum LiteralValue: Sendable, Codable, Equatable, Hashable {
     case double(Double)
     case boolean(Bool)
 
-    var type: PropertyType {
+    nonisolated var type: PropertyType {
         switch self {
         case .string:
             return .string

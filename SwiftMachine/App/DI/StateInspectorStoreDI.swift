@@ -1,0 +1,43 @@
+//
+//  StateInspectorStoreDI.swift
+//  SwiftMachine
+//
+//  Created by Codex on 26/03/2026.
+//
+
+extension StateInspectorStoreFactory {
+    static func live(service: CurrentStateMachineDefinitionService) -> Self {
+        Self { stateID, sendEditorCanvasEvent in
+            StateInspectorStore(
+                stateID: stateID,
+                observeDefinition: .init(
+                    observeDefinition: { service.observe() }
+                ),
+                updateStateName: .init(
+                    updateStateName: { stateID, name in
+                        applyDefinitionUpdate(
+                            using: service,
+                            preferredSelection: .state(id: stateID)
+                        ) { definition in
+                            definition.renamingState(id: stateID, to: name)
+                        }
+                    }
+                ),
+                updateStateProperties: .init(
+                    updateStateProperties: { stateID, properties in
+                        applyDefinitionUpdate(
+                            using: service,
+                            preferredSelection: .state(id: stateID)
+                        ) { definition in
+                            definition.updatingProperties(
+                                properties,
+                                forStateID: stateID
+                            )
+                        }
+                    }
+                ),
+                sendEditorCanvasEvent: sendEditorCanvasEvent
+            )
+        }
+    }
+}

@@ -10,11 +10,11 @@ import Foundation
 struct TransitionTargetStateCreation: Sendable, Codable, Equatable, Hashable {
     let assignments: [TransitionTargetStatePropertyAssignment]
 
-    init(assignments: [TransitionTargetStatePropertyAssignment] = []) {
+    nonisolated init(assignments: [TransitionTargetStatePropertyAssignment] = []) {
         self.assignments = assignments
     }
 
-    var isEmpty: Bool {
+    nonisolated var isEmpty: Bool {
         assignments.isEmpty
     }
 }
@@ -23,7 +23,7 @@ struct TransitionTargetStatePropertyAssignment: Sendable, Codable, Equatable, Ha
     let targetPropertyID: String
     let valueSource: TransitionTargetStateValueSource
 
-    init(
+    nonisolated init(
         targetPropertyID: String,
         valueSource: TransitionTargetStateValueSource
     ) {
@@ -31,7 +31,7 @@ struct TransitionTargetStatePropertyAssignment: Sendable, Codable, Equatable, Ha
         self.valueSource = valueSource
     }
 
-    var id: String {
+    nonisolated var id: String {
         targetPropertyID
     }
 }
@@ -40,7 +40,7 @@ struct TransitionTargetStateFieldAssignment: Sendable, Codable, Equatable, Hasha
     let fieldID: String
     let valueSource: TransitionTargetStateValueSource
 
-    init(
+    nonisolated init(
         fieldID: String,
         valueSource: TransitionTargetStateValueSource
     ) {
@@ -48,7 +48,7 @@ struct TransitionTargetStateFieldAssignment: Sendable, Codable, Equatable, Hasha
         self.valueSource = valueSource
     }
 
-    var id: String {
+    nonisolated var id: String {
         fieldID
     }
 }

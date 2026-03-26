@@ -21,7 +21,7 @@ enum PropertyType: Sendable, Codable, Equatable, Hashable {
         .boolean
     ]
 
-    var rawValue: String {
+    nonisolated var rawValue: String {
         switch self {
         case .string:
             return "string"
@@ -36,7 +36,7 @@ enum PropertyType: Sendable, Codable, Equatable, Hashable {
         }
     }
 
-    var title: String {
+    nonisolated var title: String {
         switch self {
         case .string:
             return "String"
@@ -51,7 +51,7 @@ enum PropertyType: Sendable, Codable, Equatable, Hashable {
         }
     }
 
-    var isPrimitive: Bool {
+    nonisolated var isPrimitive: Bool {
         switch self {
         case .string, .integer, .double, .boolean:
             return true
@@ -60,7 +60,7 @@ enum PropertyType: Sendable, Codable, Equatable, Hashable {
         }
     }
 
-    var referencedTypeID: String? {
+    nonisolated var referencedTypeID: String? {
         guard case .model(let typeID) = self else {
             return nil
         }
@@ -126,6 +126,33 @@ enum PropertyType: Sendable, Codable, Equatable, Hashable {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode("model", forKey: .kind)
             try container.encode(typeID, forKey: .typeID)
+        }
+    }
+
+    nonisolated static func == (lhs: PropertyType, rhs: PropertyType) -> Bool {
+        switch (lhs, rhs) {
+        case (.string, .string), (.integer, .integer), (.double, .double), (.boolean, .boolean):
+            return true
+        case let (.model(lhsTypeID), .model(rhsTypeID)):
+            return lhsTypeID == rhsTypeID
+        default:
+            return false
+        }
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        switch self {
+        case .string:
+            hasher.combine(0)
+        case .integer:
+            hasher.combine(1)
+        case .double:
+            hasher.combine(2)
+        case .boolean:
+            hasher.combine(3)
+        case .model(let typeID):
+            hasher.combine(4)
+            hasher.combine(typeID)
         }
     }
 }

@@ -16,7 +16,7 @@ struct TransitionDefinition: Sendable, Codable, Equatable, Hashable, Identifiabl
     let `guard`: GuardReference?
     let effects: [EffectReference]
 
-    init(
+    nonisolated init(
         id: String = UUID().uuidString,
         sourceStateID: String,
         eventID: String,

@@ -11,7 +11,7 @@ struct PropertyValueReference: Sendable, Codable, Equatable, Hashable {
     let propertyID: String
     let path: [String]
 
-    init(
+    nonisolated init(
         propertyID: String,
         path: [String] = []
     ) {
@@ -59,20 +59,114 @@ indirect enum ResolvedPropertySchema: Sendable, Equatable, Hashable {
     case enumType(cases: [ResolvedEnumCase], defaultCaseID: String?)
 }
 
+extension PropertyValueReference {
+    nonisolated static func == (lhs: PropertyValueReference, rhs: PropertyValueReference) -> Bool {
+        lhs.propertyID == rhs.propertyID && lhs.path == rhs.path
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(propertyID)
+        hasher.combine(path)
+    }
+}
+
+extension ResolvedPropertyField {
+    nonisolated static func == (lhs: ResolvedPropertyField, rhs: ResolvedPropertyField) -> Bool {
+        lhs.id == rhs.id
+            && lhs.name == rhs.name
+            && lhs.type == rhs.type
+            && lhs.isOptional == rhs.isOptional
+            && lhs.schema == rhs.schema
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        type.hash(into: &hasher)
+        hasher.combine(isOptional)
+        schema.hash(into: &hasher)
+    }
+}
+
+extension ResolvedEnumCase {
+    nonisolated static func == (lhs: ResolvedEnumCase, rhs: ResolvedEnumCase) -> Bool {
+        lhs.id == rhs.id
+            && lhs.name == rhs.name
+            && lhs.payloadType == rhs.payloadType
+            && lhs.payloadSchema == rhs.payloadSchema
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        switch payloadType {
+        case .some(let payloadType):
+            hasher.combine(true)
+            payloadType.hash(into: &hasher)
+        case .none:
+            hasher.combine(false)
+        }
+
+        switch payloadSchema {
+        case .some(let payloadSchema):
+            hasher.combine(true)
+            payloadSchema.hash(into: &hasher)
+        case .none:
+            hasher.combine(false)
+        }
+    }
+}
+
+extension ResolvedPropertySchema {
+    nonisolated static func == (lhs: ResolvedPropertySchema, rhs: ResolvedPropertySchema) -> Bool {
+        switch (lhs, rhs) {
+        case let (.primitive(lhsType), .primitive(rhsType)):
+            return lhsType == rhsType
+        case let (.structType(lhsFields), .structType(rhsFields)):
+            return lhsFields == rhsFields
+        case let (.enumType(lhsCases, lhsDefaultCaseID), .enumType(rhsCases, rhsDefaultCaseID)):
+            return lhsCases == rhsCases && lhsDefaultCaseID == rhsDefaultCaseID
+        default:
+            return false
+        }
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        switch self {
+        case .primitive(let type):
+            hasher.combine(0)
+            type.hash(into: &hasher)
+        case .structType(let fields):
+            hasher.combine(1)
+            hasher.combine(fields.count)
+            for field in fields {
+                field.hash(into: &hasher)
+            }
+        case .enumType(let cases, let defaultCaseID):
+            hasher.combine(2)
+            hasher.combine(cases.count)
+            for payloadCase in cases {
+                payloadCase.hash(into: &hasher)
+            }
+            hasher.combine(defaultCaseID)
+        }
+    }
+}
+
 extension StateMachineDefinition {
-    func payloadTypeDefinition(id: String) -> PayloadTypeDefinition? {
+    nonisolated func payloadTypeDefinition(id: String) -> PayloadTypeDefinition? {
         types.first(where: { $0.id == id })
     }
 
-    func schema(for type: PropertyType) -> ResolvedPropertySchema? {
+    nonisolated func schema(for type: PropertyType) -> ResolvedPropertySchema? {
         schema(for: type, visitedTypeIDs: [])
     }
 
-    func schema(for property: PropertyDefinition) -> ResolvedPropertySchema? {
+    nonisolated func schema(for property: PropertyDefinition) -> ResolvedPropertySchema? {
         schema(for: property.type)
     }
 
-    func schema(
+    nonisolated func schema(
         for reference: PropertyValueReference,
         in properties: [PropertyDefinition]
     ) -> ResolvedPropertySchema? {
@@ -98,7 +192,7 @@ extension StateMachineDefinition {
         return currentSchema
     }
 
-    func propertyType(
+    nonisolated func propertyType(
         for reference: PropertyValueReference,
         in properties: [PropertyDefinition]
     ) -> PropertyType? {
@@ -133,7 +227,7 @@ extension StateMachineDefinition {
         return currentType
     }
 
-    func typeDisplayName(for type: PropertyType) -> String {
+    nonisolated func typeDisplayName(for type: PropertyType) -> String {
         switch type {
         case .string, .integer, .double, .boolean:
             return type.title.lowercased()
@@ -142,7 +236,7 @@ extension StateMachineDefinition {
         }
     }
 
-    func referenceOptions(in properties: [PropertyDefinition]) -> [PropertyReferenceOption] {
+    nonisolated func referenceOptions(in properties: [PropertyDefinition]) -> [PropertyReferenceOption] {
         properties.compactMap { property -> (PropertyDefinition, PropertyType, ResolvedPropertySchema)? in
             guard let schema = schema(for: property) else {
                 return nil
@@ -161,7 +255,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private func schema(
+    nonisolated private func schema(
         for type: PropertyType,
         visitedTypeIDs: Set<String>
     ) -> ResolvedPropertySchema? {
@@ -239,7 +333,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private func referenceOptions(
+    nonisolated private func referenceOptions(
         for schema: ResolvedPropertySchema,
         valueType: PropertyType,
         propertyID: String,

@@ -12,7 +12,7 @@ struct PayloadTypeDefinition: Sendable, Codable, Equatable, Hashable, Identifiab
     let name: String
     let kind: PayloadTypeKind
 
-    init(
+    nonisolated init(
         id: String = UUID().uuidString,
         name: String,
         kind: PayloadTypeKind
@@ -22,7 +22,7 @@ struct PayloadTypeDefinition: Sendable, Codable, Equatable, Hashable, Identifiab
         self.kind = kind
     }
 
-    var kindTitle: String {
+    nonisolated var kindTitle: String {
         switch kind {
         case .structType:
             return "Struct"
@@ -36,7 +36,7 @@ enum PayloadTypeKind: Sendable, Codable, Equatable, Hashable {
     case structType(fields: [PropertyDefinition])
     case enumType(cases: [PayloadEnumCaseDefinition], defaultCaseID: String?)
 
-    var fields: [PropertyDefinition] {
+    nonisolated var fields: [PropertyDefinition] {
         switch self {
         case .structType(let fields):
             return fields
@@ -45,7 +45,7 @@ enum PayloadTypeKind: Sendable, Codable, Equatable, Hashable {
         }
     }
 
-    var cases: [PayloadEnumCaseDefinition] {
+    nonisolated var cases: [PayloadEnumCaseDefinition] {
         switch self {
         case .structType:
             return []
@@ -54,7 +54,7 @@ enum PayloadTypeKind: Sendable, Codable, Equatable, Hashable {
         }
     }
 
-    var defaultCaseID: String? {
+    nonisolated var defaultCaseID: String? {
         switch self {
         case .structType:
             return nil
@@ -113,7 +113,7 @@ struct PayloadEnumCaseDefinition: Sendable, Codable, Equatable, Hashable, Identi
     let name: String
     let payloadType: PropertyType?
 
-    init(
+    nonisolated init(
         id: String = UUID().uuidString,
         name: String,
         payloadType: PropertyType? = nil

@@ -8,7 +8,7 @@
 import Foundation
 
 extension StateMachineDefinition {
-    func validate() -> [ValidationError] {
+    nonisolated func validate() -> [ValidationError] {
         var errors: [ValidationError] = []
 
         func orderedDuplicates(in values: [String]) -> [String] {
@@ -303,7 +303,7 @@ extension StateMachineDefinition {
         case incompatibleTransitionTargetPropertyAssignment(transitionID: String, targetPropertyID: String)
     }
 
-    private func validatePropertyDefinitions(
+    nonisolated private func validatePropertyDefinitions(
         _ properties: [PropertyDefinition],
         ownerID: String,
         knownTypeIDs: Set<String>,
@@ -338,7 +338,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private func isValid(
+    nonisolated private func isValid(
         propertyDefaultValue: PropertyDefaultValue,
         expectedType: PropertyType,
         expectedSchema: ResolvedPropertySchema
@@ -405,7 +405,7 @@ extension StateMachineDefinition {
         }
     }
 
-    private func validateTypeCycle(
+    nonisolated private func validateTypeCycle(
         startingAt typeID: String,
         visiting: inout Set<String>,
         visited: inout Set<String>,
@@ -449,7 +449,7 @@ extension StateMachineDefinition {
         visited.insert(typeID)
     }
 
-    private func validateTransitionValueSource(
+    nonisolated private func validateTransitionValueSource(
         _ valueSource: TransitionTargetStateValueSource,
         expectedType: PropertyType,
         expectedSchema: ResolvedPropertySchema,

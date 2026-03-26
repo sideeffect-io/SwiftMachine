@@ -12,7 +12,7 @@ struct StateDefinition: Sendable, Codable, Equatable, Hashable, Identifiable {
     let name: String
     let properties: [PropertyDefinition]
 
-    init(
+    nonisolated init(
         id: String = UUID().uuidString,
         name: String,
         properties: [PropertyDefinition] = []

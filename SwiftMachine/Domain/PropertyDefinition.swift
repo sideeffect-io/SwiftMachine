@@ -14,7 +14,7 @@ struct PropertyDefinition: Sendable, Codable, Equatable, Hashable, Identifiable 
     let isOptional: Bool
     let defaultValue: PropertyDefaultValue?
 
-    init(
+    nonisolated init(
         id: String = UUID().uuidString,
         name: String,
         type: PropertyType,

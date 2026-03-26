@@ -11,7 +11,7 @@ struct EffectReference: Sendable, Codable, Equatable, Hashable {
     let name: String
     let description: String?
 
-    init(name: String, description: String? = nil) {
+    nonisolated init(name: String, description: String? = nil) {
         self.name = name
         self.description = description
     }

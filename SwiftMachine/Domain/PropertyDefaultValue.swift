@@ -15,7 +15,7 @@ indirect enum PropertyDefaultValue: Sendable, Codable, Equatable, Hashable {
     case structValue(fields: [PropertyDefaultFieldValue])
     case enumCase(caseID: String, payload: PropertyDefaultValue?)
 
-    var primitiveType: PropertyType? {
+    nonisolated var primitiveType: PropertyType? {
         switch self {
         case .string:
             return .string
@@ -119,7 +119,7 @@ struct PropertyDefaultFieldValue: Sendable, Codable, Equatable, Hashable, Identi
     let fieldID: String
     let value: PropertyDefaultValue
 
-    init(
+    nonisolated init(
         fieldID: String,
         value: PropertyDefaultValue
     ) {
@@ -127,7 +127,7 @@ struct PropertyDefaultFieldValue: Sendable, Codable, Equatable, Hashable, Identi
         self.value = value
     }
 
-    var id: String {
+    nonisolated var id: String {
         fieldID
     }
 }

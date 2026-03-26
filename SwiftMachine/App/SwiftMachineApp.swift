@@ -9,12 +9,12 @@ import SwiftUI
 
 @main
 struct SwiftMachineApp: App {
-    @State private var stateMachineEditorStore = SwiftMachineStore()
+    private let compositionRoot = AppCompositionRoot()
 
     var body: some Scene {
         WindowGroup {
             SwiftMachineRootView()
-                .environment(stateMachineEditorStore)
+                .appCompositionRoot(compositionRoot)
                 .frame(
                     minWidth: SwiftMachineShellMetrics.minimumWindowWidth,
                     minHeight: SwiftMachineShellMetrics.minimumWindowHeight
