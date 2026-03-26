@@ -57,28 +57,28 @@ struct SwiftMachineInspectorView: View {
         case .state(let stateID):
             StateInspectorFeatureView(
                 stateID: stateID,
-                sendEditorCanvasEvent: store.sendEditorCanvasEvent
+                sendEditorCanvasCommand: store.sendEditorCanvasCommand
             )
             .id("state-inspector-\(stateID)")
 
         case .event(let eventID):
             EventInspectorFeatureView(
                 eventID: eventID,
-                sendEditorCanvasEvent: store.sendEditorCanvasEvent
+                sendEditorCanvasCommand: store.sendEditorCanvasCommand
             )
             .id("event-inspector-\(eventID)")
 
         case .type(let typeID):
             TypeInspectorFeatureView(
                 typeID: typeID,
-                sendEditorCanvasEvent: store.sendEditorCanvasEvent
+                sendEditorCanvasCommand: store.sendEditorCanvasCommand
             )
             .id("type-inspector-\(typeID)")
 
         case .transition(let transitionID):
             TransitionInspectorFeatureView(
                 transitionID: transitionID,
-                sendEditorCanvasEvent: store.sendEditorCanvasEvent
+                sendEditorCanvasCommand: store.sendEditorCanvasCommand
             )
             .id("transition-inspector-\(transitionID)")
 

@@ -11,11 +11,11 @@ import Testing
 @MainActor
 struct TypePaletteStoreTests {
 
-    @Test("Adding a struct type routes the mutation to the root canvas and selects the created type")
-    func addStructTypeRoutesDefinitionMutation() throws {
+    @Test("Adding a struct type emits a selection command for the created type")
+    func addStructTypeEmitsSelectionCommand() throws {
         let initialDefinition = try makeTypePaletteDefinition()
         let createdTypeResult = try #require(initialDefinition.addingStructType())
-        var canvasEvents: [EditorCanvasStore.Event] = []
+        var canvasCommands: [EditorCanvasCommand] = []
 
         let store = TypePaletteStore(
             observeDefinition: .init(
@@ -27,34 +27,19 @@ struct TypePaletteStoreTests {
             ),
             createStructType: .init(
                 createStructType: {
-                    DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: createdTypeResult.definition,
-                            revision: 2
-                        ),
-                        preferredSelection: .type(id: createdTypeResult.typeID)
-                    )
+                    createdTypeResult.typeID
                 }
             ),
             createEnumType: .init(createEnumType: { nil }),
             deleteType: .init(deleteType: { _ in nil }),
-            sendEditorCanvasEvent: .init(send: { canvasEvents.append($0) })
+            sendEditorCanvasCommand: .init(send: { canvasCommands.append($0) })
         )
 
         store.send(.addStructTypeTapped)
 
         #expect(
-            canvasEvents == [
-                .definitionMutationWasApplied(
-                    DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: createdTypeResult.definition,
-                            revision: 2
-                        ),
-                        preferredSelection: .type(id: createdTypeResult.typeID)
-                    ),
-                    transitionPositionOverride: nil
-                )
+            canvasCommands == [
+                .selectWhenAvailable(.type(id: createdTypeResult.typeID))
             ]
         )
     }
@@ -75,7 +60,7 @@ struct TypePaletteStoreTests {
             createStructType: .init(createStructType: { nil }),
             createEnumType: .init(createEnumType: { nil }),
             deleteType: .init(deleteType: { _ in nil }),
-            sendEditorCanvasEvent: .init(send: { _ in })
+            sendEditorCanvasCommand: .init(send: { _ in })
         )
 
         store.send(

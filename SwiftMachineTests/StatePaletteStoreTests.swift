@@ -11,13 +11,13 @@ import Testing
 @MainActor
 struct StatePaletteStoreTests {
 
-    @Test("Tapping add state presents the creation prompt and confirmation routes the mutation to the root canvas")
-    func createStateRoutesDefinitionMutation() throws {
+    @Test("Tapping add state presents the creation prompt and confirmation emits a selection command")
+    func createStateEmitsSelectionCommand() throws {
         let initialDefinition = try makePaletteDefinition()
         let createdStateResult = try #require(
             initialDefinition.addingState(named: "Review", properties: [])
         )
-        var canvasEvents: [EditorCanvasStore.Event] = []
+        var canvasCommands: [EditorCanvasCommand] = []
 
         let store = StatePaletteStore(
             observeDefinition: .init(
@@ -31,17 +31,11 @@ struct StatePaletteStoreTests {
                 createState: { name, properties in
                     #expect(name == "Review")
                     #expect(properties.isEmpty)
-                    return DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: createdStateResult.definition,
-                            revision: 2
-                        ),
-                        preferredSelection: .state(id: createdStateResult.stateID)
-                    )
+                    return createdStateResult.stateID
                 }
             ),
             deleteState: .init(deleteState: { _ in nil }),
-            sendEditorCanvasEvent: .init(send: { canvasEvents.append($0) })
+            sendEditorCanvasCommand: .init(send: { canvasCommands.append($0) })
         )
 
         store.send(.addStateTapped)
@@ -51,17 +45,8 @@ struct StatePaletteStoreTests {
 
         #expect(!store.state.isStateCreationPromptPresented)
         #expect(
-            canvasEvents == [
-                .definitionMutationWasApplied(
-                    DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: createdStateResult.definition,
-                            revision: 2
-                        ),
-                        preferredSelection: .state(id: createdStateResult.stateID)
-                    ),
-                    transitionPositionOverride: nil
-                )
+            canvasCommands == [
+                .selectWhenAvailable(.state(id: createdStateResult.stateID))
             ]
         )
     }
@@ -81,7 +66,7 @@ struct StatePaletteStoreTests {
             ),
             createState: .init(createState: { _, _ in nil }),
             deleteState: .init(deleteState: { _ in nil }),
-            sendEditorCanvasEvent: .init(send: { _ in })
+            sendEditorCanvasCommand: .init(send: { _ in })
         )
 
         store.send(

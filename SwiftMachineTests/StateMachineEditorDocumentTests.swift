@@ -5,6 +5,7 @@
 //  Created by Codex on 16/03/2026.
 //
 
+import Foundation
 import Testing
 @testable import SwiftMachine
 
@@ -239,6 +240,95 @@ struct StateMachineEditorDocumentTests {
         #expect(userType.name == "User")
         #expect(userType.kind.fields.map(\.name) == ["name"])
         #expect(enumType.kind.cases.isEmpty)
+    }
+
+    @Test("Documents round-trip through Codable while preserving semantic and layout state")
+    func documentRoundTripsThroughCodable() throws {
+        let baseDocument = try #require(makeEditorDocument())
+        let secondStateResult = try #require(baseDocument.addingState(named: "Loading", properties: []))
+        let eventResult = try #require(secondStateResult.document.addingEvent(named: "Submit", properties: []))
+        let document = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: eventResult.document.definition.initialStateID,
+                targetStateID: secondStateResult.stateID,
+                eventID: eventResult.eventID,
+                transitionPosition: StateMachineEditorPoint(x: 720, y: 280)
+            )?.document
+        )
+
+        let encoded = try JSONEncoder().encode(document)
+        let decoded = try JSONDecoder().decode(StateMachineEditorDocument.self, from: encoded)
+
+        #expect(decoded == document)
+    }
+
+    @Test("Legacy event positions migrate into transition positions during decoding")
+    func legacyEventPositionsMigrateToTransitionPositions() throws {
+        let baseDocument = try #require(makeEditorDocument())
+        let secondStateResult = try #require(baseDocument.addingState(named: "Loading", properties: []))
+        let eventResult = try #require(secondStateResult.document.addingEvent(named: "Submit", properties: []))
+        let transitionResult = try #require(
+            eventResult.document.addingTransition(
+                sourceStateID: eventResult.document.definition.initialStateID,
+                targetStateID: secondStateResult.stateID,
+                eventID: eventResult.eventID,
+                transitionPosition: StateMachineEditorPoint(x: 720, y: 280)
+            )
+        )
+        let encoded = try JSONEncoder().encode(transitionResult.document)
+        var legacyObject = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        let legacyOrigin = StateMachineEditorPoint(x: 300, y: 400)
+
+        legacyObject.removeValue(forKey: "transitionPositions")
+        legacyObject["eventPositions"] = [
+            eventResult.eventID: [
+                "x": legacyOrigin.x,
+                "y": legacyOrigin.y
+            ]
+        ]
+
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let decoded = try JSONDecoder().decode(StateMachineEditorDocument.self, from: legacyData)
+
+        #expect(
+            decoded.transitionPosition(for: transitionResult.transitionID)
+                == legacyOrigin.translatingBy(dx: 110, dy: 48)
+        )
+    }
+
+    @Test("Removing an unreferenced type preserves layout metadata")
+    func removingUnreferencedTypePreservesLayout() throws {
+        let document = try #require(makeEditorDocument())
+        let typeResult = try #require(document.addingStructType())
+        let updatedDocument = try #require(
+            typeResult.document.removingType(id: typeResult.typeID)
+        )
+
+        #expect(updatedDocument.definition.types.isEmpty)
+        #expect(updatedDocument.statePositions == typeResult.document.statePositions)
+        #expect(updatedDocument.transitionPositions == typeResult.document.transitionPositions)
+        #expect(updatedDocument.definition.validate().isEmpty)
+    }
+
+    @Test("Referenced types cannot be removed from the document")
+    func removingReferencedTypeIsRejected() throws {
+        let document = try #require(makeEditorDocument())
+        let typeResult = try #require(document.addingStructType())
+        let updatedDocument = try #require(
+            typeResult.document.updatingStateProperties(
+                [
+                    PropertyDefinition(
+                        name: "user",
+                        type: .model(typeID: typeResult.typeID)
+                    )
+                ],
+                forStateID: typeResult.document.definition.initialStateID
+            )
+        )
+
+        #expect(updatedDocument.removingType(id: typeResult.typeID) == nil)
     }
 
     @Test("Transition target-state creation reconciles when referenced properties disappear")

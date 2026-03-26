@@ -7,7 +7,7 @@
 
 extension TypePaletteStoreFactory {
     static func live(service: CurrentStateMachineDefinitionService) -> Self {
-        Self { sendEditorCanvasEvent in
+        Self { sendEditorCanvasCommand in
             TypePaletteStore(
                 observeDefinition: .init(
                     observeDefinition: { service.observe() }
@@ -15,50 +15,41 @@ extension TypePaletteStoreFactory {
                 createStructType: .init(
                     createStructType: {
                         var createdTypeID: String?
-                        guard let snapshot = service.update({ definition in
+                        guard service.update({ definition in
                             let result = definition.addingStructType()
                             createdTypeID = result?.typeID
                             return result?.definition
-                        }),
+                        }) != nil,
                         let createdTypeID else {
                             return nil
                         }
 
-                        return DefinitionMutationResult(
-                            snapshot: snapshot,
-                            preferredSelection: .type(id: createdTypeID)
-                        )
+                        return createdTypeID
                     }
                 ),
                 createEnumType: .init(
                     createEnumType: {
                         var createdTypeID: String?
-                        guard let snapshot = service.update({ definition in
+                        guard service.update({ definition in
                             let result = definition.addingEnumType()
                             createdTypeID = result?.typeID
                             return result?.definition
-                        }),
+                        }) != nil,
                         let createdTypeID else {
                             return nil
                         }
 
-                        return DefinitionMutationResult(
-                            snapshot: snapshot,
-                            preferredSelection: .type(id: createdTypeID)
-                        )
+                        return createdTypeID
                     }
                 ),
                 deleteType: .init(
                     deleteType: { typeID in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: nil
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.removingType(id: typeID)
                         }
                     }
                 ),
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         }
     }

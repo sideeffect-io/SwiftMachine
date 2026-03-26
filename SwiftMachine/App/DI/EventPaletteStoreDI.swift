@@ -7,17 +7,14 @@
 
 extension EventPaletteStoreFactory {
     static func live(service: CurrentStateMachineDefinitionService) -> Self {
-        Self { sendEditorCanvasEvent in
+        Self { sendEditorCanvasCommand in
             EventPaletteStore(
                 observeDefinition: .init(
                     observeDefinition: { service.observe() }
                 ),
                 createEvent: .init(
                     createEvent: { name, properties in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: nil
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.addingEvent(
                                 named: name,
                                 properties: properties
@@ -27,15 +24,12 @@ extension EventPaletteStoreFactory {
                 ),
                 deleteEvent: .init(
                     deleteEvent: { eventID in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: nil
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.removingEvent(id: eventID)
                         }
                     }
                 ),
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         }
     }

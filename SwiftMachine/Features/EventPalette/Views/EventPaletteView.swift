@@ -13,12 +13,12 @@ struct EventPaletteView: View {
     @Environment(\.eventPaletteStoreFactory) private var eventPaletteStoreFactory
 
     let selectedEventID: String?
-    let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     var body: some View {
         WithViewStore(
             store: eventPaletteStoreFactory.make(
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         ) { store in
             content(for: store)
@@ -83,7 +83,7 @@ struct EventPaletteView: View {
     }
 
     private func selectType(_ typeID: String) {
-        sendEditorCanvasEvent(.selectType(id: typeID))
+        sendEditorCanvasCommand(.select(.type(id: typeID)))
     }
 }
 

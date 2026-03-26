@@ -18,15 +18,15 @@ struct SwiftMachineToolboxView: View {
                 if editor != nil {
                     StatePaletteView(
                         selectedStateID: store.selectedStateID,
-                        sendEditorCanvasEvent: store.sendEditorCanvasEvent
+                        sendEditorCanvasCommand: store.sendEditorCanvasCommand
                     )
                     EventPaletteView(
                         selectedEventID: store.selectedEventID,
-                        sendEditorCanvasEvent: store.sendEditorCanvasEvent
+                        sendEditorCanvasCommand: store.sendEditorCanvasCommand
                     )
                     TypePaletteView(
                         selectedTypeID: store.selectedTypeID,
-                        sendEditorCanvasEvent: store.sendEditorCanvasEvent
+                        sendEditorCanvasCommand: store.sendEditorCanvasCommand
                     )
                 } else {
                     EditorPanelSection(

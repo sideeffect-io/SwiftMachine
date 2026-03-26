@@ -803,12 +803,13 @@ private extension TransitionValueChoice {
     }
 }
 
-private extension ResolvedPropertyField {
+extension ResolvedPropertyField {
     func fieldLabel(typeDefinitions: [PayloadTypeDefinition]) -> String {
         let property = PropertyDefinition(
             id: id,
             name: name,
-            type: type
+            type: type,
+            isOptional: isOptional
         )
 
         return property.editorLabel(typeDefinitions: typeDefinitions)

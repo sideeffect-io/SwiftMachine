@@ -7,7 +7,7 @@
 
 extension EventInspectorStoreFactory {
     static func live(service: CurrentStateMachineDefinitionService) -> Self {
-        Self { eventID, sendEditorCanvasEvent in
+        Self { eventID, sendEditorCanvasCommand in
             EventInspectorStore(
                 eventID: eventID,
                 observeDefinition: .init(
@@ -15,20 +15,14 @@ extension EventInspectorStoreFactory {
                 ),
                 updateEventName: .init(
                     updateEventName: { eventID, name in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .event(id: eventID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.renamingEvent(id: eventID, to: name)
                         }
                     }
                 ),
                 updateEventProperties: .init(
                     updateEventProperties: { eventID, properties in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .event(id: eventID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.updatingProperties(
                                 properties,
                                 forEventID: eventID
@@ -36,7 +30,7 @@ extension EventInspectorStoreFactory {
                         }
                     }
                 ),
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         }
     }

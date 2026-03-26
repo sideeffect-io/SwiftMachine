@@ -11,13 +11,13 @@ import Testing
 @MainActor
 struct EventPaletteStoreTests {
 
-    @Test("Tapping add event presents the creation prompt and confirmation routes the mutation to the root canvas")
-    func createEventRoutesDefinitionMutation() throws {
+    @Test("Tapping add event presents the creation prompt and confirmation avoids presentation commands")
+    func createEventDoesNotEmitPresentationCommands() throws {
         let initialDefinition = try makeEventPaletteDefinition()
         let createdEventResult = try #require(
             initialDefinition.addingEvent(named: "Submitted", properties: [])
         )
-        var canvasEvents: [EditorCanvasStore.Event] = []
+        var canvasCommands: [EditorCanvasCommand] = []
 
         let store = EventPaletteStore(
             observeDefinition: .init(
@@ -31,17 +31,14 @@ struct EventPaletteStoreTests {
                 createEvent: { name, properties in
                     #expect(name == "Submitted")
                     #expect(properties.isEmpty)
-                    return DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: createdEventResult.definition,
-                            revision: 2
-                        ),
-                        preferredSelection: nil
+                    return CurrentStateMachineDefinitionSnapshot(
+                        definition: createdEventResult.definition,
+                        revision: 2
                     )
                 }
             ),
             deleteEvent: .init(deleteEvent: { _ in nil }),
-            sendEditorCanvasEvent: .init(send: { canvasEvents.append($0) })
+            sendEditorCanvasCommand: .init(send: { canvasCommands.append($0) })
         )
 
         store.send(.addEventTapped)
@@ -50,20 +47,7 @@ struct EventPaletteStoreTests {
         store.send(.confirmEventCreation(name: "Submitted", properties: []))
 
         #expect(!store.state.isEventCreationPromptPresented)
-        #expect(
-            canvasEvents == [
-                .definitionMutationWasApplied(
-                    DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: createdEventResult.definition,
-                            revision: 2
-                        ),
-                        preferredSelection: nil
-                    ),
-                    transitionPositionOverride: nil
-                )
-            ]
-        )
+        #expect(canvasCommands.isEmpty)
     }
 
     @Test("A snapshot update refreshes the local event definition snapshot")
@@ -81,7 +65,7 @@ struct EventPaletteStoreTests {
             ),
             createEvent: .init(createEvent: { _, _ in nil }),
             deleteEvent: .init(deleteEvent: { _ in nil }),
-            sendEditorCanvasEvent: .init(send: { _ in })
+            sendEditorCanvasCommand: .init(send: { _ in })
         )
 
         store.send(

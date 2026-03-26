@@ -11,13 +11,13 @@ struct StateInspectorFeatureView: View {
     @Environment(\.stateInspectorStoreFactory) private var stateInspectorStoreFactory
 
     let stateID: String
-    let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     var body: some View {
         WithViewStore(
             store: stateInspectorStoreFactory.make(
                 stateID: stateID,
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         ) { store in
             content(for: store)
@@ -104,6 +104,9 @@ private struct StateTitleEditorView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }
+        }
+        .onChange(of: state.name) { _, updatedName in
+            nameDraft = updatedName
         }
     }
 
@@ -216,12 +219,7 @@ private struct StatePropertiesEditorView: View {
 
             HStack {
                 Button("Reset") {
-                    propertyDrafts = state.properties.map { property in
-                        EditorPropertyDraft(
-                            property: property,
-                            availableModelTypes: availableModelTypes
-                        )
-                    }
+                    resetDrafts()
                 }
                 .disabled(!isDirty)
 
@@ -231,6 +229,9 @@ private struct StatePropertiesEditorView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }
+        }
+        .onChange(of: state.properties) { _, _ in
+            resetDrafts()
         }
     }
 
@@ -255,6 +256,15 @@ private struct StatePropertiesEditorView: View {
 
     private func removeProperty(_ id: String) {
         propertyDrafts.removeAll { $0.id == id }
+    }
+
+    private func resetDrafts() {
+        propertyDrafts = state.properties.map { property in
+            EditorPropertyDraft(
+                property: property,
+                availableModelTypes: availableModelTypes
+            )
+        }
     }
 
     private func selectType(_ typeID: String) {

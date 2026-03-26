@@ -67,6 +67,16 @@ struct StateMachineEditorLayout: Sendable, Codable, Equatable, Hashable {
         )
     }
 
+    func stateID(
+        at point: StateMachineEditorPoint,
+        in definition: StateMachineDefinition
+    ) -> String? {
+        definition.states
+            .reversed()
+            .first { frame(for: $0.id).contains(point) }?
+            .id
+    }
+
     func movingState(
         id stateID: String,
         to position: StateMachineEditorPoint
@@ -130,6 +140,30 @@ struct StateMachineEditorLayout: Sendable, Codable, Equatable, Hashable {
         return StateMachineEditorLayout(
             statePositions: updatedStatePositions,
             transitionPositions: updatedTransitionPositions
+        )
+    }
+
+    static func transitionPositions(
+        migratingLegacyEventPositions legacyEventPositions: [String: StateMachineEditorPoint],
+        for definition: StateMachineDefinition
+    ) -> [String: StateMachineEditorPoint] {
+        let halfLegacyWidth = 110.0
+        let halfLegacyHeight = 48.0
+
+        return Dictionary(
+            uniqueKeysWithValues: definition.transitions.compactMap { transition in
+                guard let legacyOrigin = legacyEventPositions[transition.eventID] else {
+                    return nil
+                }
+
+                return (
+                    transition.id,
+                    legacyOrigin.translatingBy(
+                        dx: halfLegacyWidth,
+                        dy: halfLegacyHeight
+                    )
+                )
+            }
         )
     }
 }

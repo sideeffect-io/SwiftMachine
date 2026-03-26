@@ -11,13 +11,13 @@ struct EventInspectorFeatureView: View {
     @Environment(\.eventInspectorStoreFactory) private var eventInspectorStoreFactory
 
     let eventID: String
-    let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     var body: some View {
         WithViewStore(
             store: eventInspectorStoreFactory.make(
                 eventID: eventID,
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         ) { store in
             content(for: store)
@@ -107,6 +107,9 @@ private struct EventTitleEditorView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }
+        }
+        .onChange(of: event.name) { _, updatedName in
+            nameDraft = updatedName
         }
     }
 

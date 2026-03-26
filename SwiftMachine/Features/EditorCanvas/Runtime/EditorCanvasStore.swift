@@ -73,6 +73,8 @@ final class EditorCanvasStore: StartableStore {
         var connectionDraft: StateMachineConnectionDraft?
         var transitionPrompt: StateMachineTransitionPrompt?
         var isObservingDefinition: Bool
+        var pendingSelectionWhenAvailable: StateMachineEditorSelection?
+        var pendingTransitionPositionOverrides: [String: StateMachineEditorPoint]
 
         static func initial() -> State {
             let snapshot = CurrentStateMachineDefinitionSnapshot.empty
@@ -86,7 +88,9 @@ final class EditorCanvasStore: StartableStore {
                 selection: nil,
                 connectionDraft: nil,
                 transitionPrompt: nil,
-                isObservingDefinition: false
+                isObservingDefinition: false,
+                pendingSelectionWhenAvailable: nil,
+                pendingTransitionPositionOverrides: [:]
             )
         }
     }
@@ -94,10 +98,9 @@ final class EditorCanvasStore: StartableStore {
     enum Event: Sendable, Equatable {
         case startRequested
         case snapshotDidChange(CurrentStateMachineDefinitionSnapshot)
-        case definitionMutationWasApplied(
-            DefinitionMutationResult,
-            transitionPositionOverride: StateMachineEditorPoint?
-        )
+        case stageSelectionWhenAvailable(StateMachineEditorSelection)
+        case stageTransitionPositionWhenAvailable(id: String, position: StateMachineEditorPoint)
+        case applyTransitionPositionOverride(id: String, position: StateMachineEditorPoint)
         case selectState(id: String)
         case selectEvent(id: String)
         case selectType(id: String)
@@ -164,21 +167,19 @@ extension EditorCanvasStore {
                 return .init(state: state, effects: [.startObservingDefinition])
 
             case .snapshotDidChange(let snapshot):
-                state = reconcile(
-                    state: state,
-                    snapshot: snapshot,
-                    preferredSelection: nil,
-                    transitionPositionOverride: nil
-                )
+                state = reconcile(state: state, snapshot: snapshot)
                 return .init(state: state, effects: [])
 
-            case .definitionMutationWasApplied(let result, let transitionPositionOverride):
-                state = reconcile(
-                    state: state,
-                    snapshot: result.snapshot,
-                    preferredSelection: result.preferredSelection,
-                    transitionPositionOverride: transitionPositionOverride
-                )
+            case .stageSelectionWhenAvailable(let selection):
+                state.pendingSelectionWhenAvailable = selection
+                return .init(state: state, effects: [])
+
+            case .stageTransitionPositionWhenAvailable(let transitionID, let position):
+                state.pendingTransitionPositionOverrides[transitionID] = position
+                return .init(state: state, effects: [])
+
+            case .applyTransitionPositionOverride(let transitionID, let position):
+                state.layout = state.layout.movingTransition(id: transitionID, to: position)
                 return .init(state: state, effects: [])
 
             case .selectState(let stateID):
@@ -263,9 +264,7 @@ extension EditorCanvasStore {
 
         private static func reconcile(
             state: State,
-            snapshot: CurrentStateMachineDefinitionSnapshot,
-            preferredSelection: StateMachineEditorSelection?,
-            transitionPositionOverride: StateMachineEditorPoint?
+            snapshot: CurrentStateMachineDefinitionSnapshot
         ) -> State {
             var state = state
             let previousDefinition = state.snapshot.definition
@@ -275,23 +274,29 @@ extension EditorCanvasStore {
             state.phase = nextDefinition == nil ? .wizard : .editing
 
             if let nextDefinition {
-                let transitionPositionOverrides: [String: StateMachineEditorPoint]
-                if case .transition(let transitionID) = preferredSelection,
-                   let transitionPositionOverride {
-                    transitionPositionOverrides = [transitionID: transitionPositionOverride]
-                } else {
-                    transitionPositionOverrides = [:]
-                }
+                let validTransitionIDs = Set(nextDefinition.transitions.map(\.id))
+                let appliedTransitionPositionOverrides = state.pendingTransitionPositionOverrides
+                    .filter { validTransitionIDs.contains($0.key) }
 
                 state.layout = state.layout.reconciled(
                     from: previousDefinition,
                     to: nextDefinition,
-                    transitionPositionOverrides: transitionPositionOverrides
+                    transitionPositionOverrides: appliedTransitionPositionOverrides
                 )
-                state.selection = preferredSelection ?? reconciledSelection(
-                    state.selection,
-                    in: nextDefinition
-                )
+
+                if let pendingSelection = state.pendingSelectionWhenAvailable,
+                   pendingSelection.exists(in: nextDefinition) {
+                    state.selection = pendingSelection
+                    state.pendingSelectionWhenAvailable = nil
+                } else {
+                    state.selection = reconciledSelection(
+                        state.selection,
+                        in: nextDefinition
+                    )
+                }
+
+                state.pendingTransitionPositionOverrides = state.pendingTransitionPositionOverrides
+                    .filter { !validTransitionIDs.contains($0.key) }
                 state.connectionDraft = reconciledConnectionDraft(
                     state.connectionDraft,
                     in: nextDefinition
@@ -305,6 +310,8 @@ extension EditorCanvasStore {
                 state.selection = nil
                 state.connectionDraft = nil
                 state.transitionPrompt = nil
+                state.pendingSelectionWhenAvailable = nil
+                state.pendingTransitionPositionOverrides = [:]
             }
 
             return state

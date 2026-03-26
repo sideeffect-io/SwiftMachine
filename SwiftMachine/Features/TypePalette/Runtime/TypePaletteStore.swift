@@ -8,25 +8,25 @@
 import Observation
 
 struct CreateStructTypeEffectExecutor: Sendable {
-    let createStructType: @Sendable () -> DefinitionMutationResult?
+    let createStructType: @Sendable () -> String?
 
-    func callAsFunction() -> DefinitionMutationResult? {
+    func callAsFunction() -> String? {
         createStructType()
     }
 }
 
 struct CreateEnumTypeEffectExecutor: Sendable {
-    let createEnumType: @Sendable () -> DefinitionMutationResult?
+    let createEnumType: @Sendable () -> String?
 
-    func callAsFunction() -> DefinitionMutationResult? {
+    func callAsFunction() -> String? {
         createEnumType()
     }
 }
 
 struct DeleteTypeEffectExecutor: Sendable {
-    let deleteType: @Sendable (String) -> DefinitionMutationResult?
+    let deleteType: @Sendable (String) -> CurrentStateMachineDefinitionSnapshot?
 
-    func callAsFunction(_ typeID: String) -> DefinitionMutationResult? {
+    func callAsFunction(_ typeID: String) -> CurrentStateMachineDefinitionSnapshot? {
         deleteType(typeID)
     }
 }
@@ -62,21 +62,21 @@ final class TypePaletteStore: StartableStore {
     private let createStructType: CreateStructTypeEffectExecutor
     private let createEnumType: CreateEnumTypeEffectExecutor
     private let deleteType: DeleteTypeEffectExecutor
-    private let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    private let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     init(
         observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor,
         createStructType: CreateStructTypeEffectExecutor,
         createEnumType: CreateEnumTypeEffectExecutor,
         deleteType: DeleteTypeEffectExecutor,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         state = State(snapshot: .empty)
         self.observeDefinition = observeDefinition
         self.createStructType = createStructType
         self.createEnumType = createEnumType
         self.deleteType = deleteType
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
     }
 
     func start() {
@@ -95,34 +95,18 @@ final class TypePaletteStore: StartableStore {
                 }
 
             case .createStructType:
-                guard let result = createStructType() else { continue }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: nil
-                    )
-                )
+                guard let typeID = createStructType() else { continue }
+                sendEditorCanvasCommand(.selectWhenAvailable(.type(id: typeID)))
 
             case .createEnumType:
-                guard let result = createEnumType() else { continue }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: nil
-                    )
-                )
+                guard let typeID = createEnumType() else { continue }
+                sendEditorCanvasCommand(.selectWhenAvailable(.type(id: typeID)))
 
             case .selectType(let typeID):
-                sendEditorCanvasEvent(.selectType(id: typeID))
+                sendEditorCanvasCommand(.select(.type(id: typeID)))
 
             case .deleteType(let typeID):
-                guard let result = deleteType(typeID) else { continue }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: nil
-                    )
-                )
+                guard deleteType(typeID) != nil else { continue }
             }
         }
     }

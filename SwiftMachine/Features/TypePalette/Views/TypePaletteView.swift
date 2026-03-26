@@ -11,12 +11,12 @@ struct TypePaletteView: View {
     @Environment(\.typePaletteStoreFactory) private var typePaletteStoreFactory
 
     let selectedTypeID: String?
-    let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     var body: some View {
         WithViewStore(
             store: typePaletteStoreFactory.make(
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         ) { store in
             content(for: store)

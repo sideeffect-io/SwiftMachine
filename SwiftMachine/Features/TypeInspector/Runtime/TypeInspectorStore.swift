@@ -8,23 +8,23 @@
 import Observation
 
 struct UpdateTypeNameEffectExecutor: Sendable {
-    let updateTypeName: @Sendable (String, String) -> DefinitionMutationResult?
+    let updateTypeName: @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         typeID: String,
         name: String
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         updateTypeName(typeID, name)
     }
 }
 
 struct UpdateTypeEffectExecutor: Sendable {
-    let updateType: @Sendable (String, PayloadTypeDefinition) -> DefinitionMutationResult?
+    let updateType: @Sendable (String, PayloadTypeDefinition) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         typeID: String,
         type: PayloadTypeDefinition
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         updateType(typeID, type)
     }
 }
@@ -58,20 +58,20 @@ final class TypeInspectorStore: StartableStore {
     private let observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor
     private let updateTypeName: UpdateTypeNameEffectExecutor
     private let updateType: UpdateTypeEffectExecutor
-    private let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    private let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     init(
         typeID: String,
         observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor,
         updateTypeName: UpdateTypeNameEffectExecutor,
         updateType: UpdateTypeEffectExecutor,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         state = State(snapshot: .empty, typeID: typeID)
         self.observeDefinition = observeDefinition
         self.updateTypeName = updateTypeName
         self.updateType = updateType
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
     }
 
     func start() {
@@ -90,15 +90,13 @@ final class TypeInspectorStore: StartableStore {
                 }
 
             case .updateTypeName(let name):
-                guard let result = updateTypeName(typeID: state.typeID, name: name) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                guard updateTypeName(typeID: state.typeID, name: name) != nil else { continue }
 
             case .updateType(let type):
-                guard let result = updateType(typeID: state.typeID, type: type) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                guard updateType(typeID: state.typeID, type: type) != nil else { continue }
 
             case .selectType(let typeID):
-                sendEditorCanvasEvent(.selectType(id: typeID))
+                sendEditorCanvasCommand(.select(.type(id: typeID)))
             }
         }
     }

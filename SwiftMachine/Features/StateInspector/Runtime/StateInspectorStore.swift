@@ -8,23 +8,23 @@
 import Observation
 
 struct UpdateStateNameEffectExecutor: Sendable {
-    let updateStateName: @Sendable (String, String) -> DefinitionMutationResult?
+    let updateStateName: @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         stateID: String,
         name: String
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         updateStateName(stateID, name)
     }
 }
 
 struct UpdateStatePropertiesEffectExecutor: Sendable {
-    let updateStateProperties: @Sendable (String, [PropertyDefinition]) -> DefinitionMutationResult?
+    let updateStateProperties: @Sendable (String, [PropertyDefinition]) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         stateID: String,
         properties: [PropertyDefinition]
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         updateStateProperties(stateID, properties)
     }
 }
@@ -58,20 +58,20 @@ final class StateInspectorStore: StartableStore {
     private let observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor
     private let updateStateName: UpdateStateNameEffectExecutor
     private let updateStateProperties: UpdateStatePropertiesEffectExecutor
-    private let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    private let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     init(
         stateID: String,
         observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor,
         updateStateName: UpdateStateNameEffectExecutor,
         updateStateProperties: UpdateStatePropertiesEffectExecutor,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         state = State(snapshot: .empty, stateID: stateID)
         self.observeDefinition = observeDefinition
         self.updateStateName = updateStateName
         self.updateStateProperties = updateStateProperties
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
     }
 
     func start() {
@@ -90,15 +90,13 @@ final class StateInspectorStore: StartableStore {
                 }
 
             case .updateStateName(let name):
-                guard let result = updateStateName(stateID: state.stateID, name: name) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                guard updateStateName(stateID: state.stateID, name: name) != nil else { continue }
 
             case .updateStateProperties(let properties):
-                guard let result = updateStateProperties(stateID: state.stateID, properties: properties) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                guard updateStateProperties(stateID: state.stateID, properties: properties) != nil else { continue }
 
             case .selectType(let typeID):
-                sendEditorCanvasEvent(.selectType(id: typeID))
+                sendEditorCanvasCommand(.select(.type(id: typeID)))
             }
         }
     }

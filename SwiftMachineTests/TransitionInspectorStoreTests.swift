@@ -11,8 +11,8 @@ import Testing
 @MainActor
 struct TransitionInspectorStoreTests {
 
-    @Test("Assigning a source state routes the mutation to the root canvas")
-    func assignSourceStateRoutesDefinitionMutation() throws {
+    @Test("Assigning a source state delegates the mutation without emitting presentation commands")
+    func assignSourceStateDoesNotEmitPresentationCommands() throws {
         let fixture = try makeTransitionFixture()
         let updatedDefinition = try #require(
             fixture.definition.assigningSourceState(
@@ -20,44 +20,28 @@ struct TransitionInspectorStoreTests {
                 toTransitionID: fixture.transitionID
             )
         )
-        var canvasEvents: [EditorCanvasStore.Event] = []
+        var canvasCommands: [EditorCanvasCommand] = []
 
         let store = makeTransitionInspectorStore(
             transitionID: fixture.transitionID,
-            sendEditorCanvasEvent: { canvasEvents.append($0) },
+            sendEditorCanvasCommand: { canvasCommands.append($0) },
             assignSourceState: { transitionID, stateID in
                 #expect(transitionID == fixture.transitionID)
                 #expect(stateID == fixture.targetStateID)
-                return DefinitionMutationResult(
-                    snapshot: CurrentStateMachineDefinitionSnapshot(
-                        definition: updatedDefinition,
-                        revision: 2
-                    ),
-                    preferredSelection: .transition(id: fixture.transitionID)
+                return CurrentStateMachineDefinitionSnapshot(
+                    definition: updatedDefinition,
+                    revision: 2
                 )
             }
         )
 
         store.send(.assignSourceState(fixture.targetStateID))
 
-        #expect(
-            canvasEvents == [
-                .definitionMutationWasApplied(
-                    DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: updatedDefinition,
-                            revision: 2
-                        ),
-                        preferredSelection: .transition(id: fixture.transitionID)
-                    ),
-                    transitionPositionOverride: nil
-                )
-            ]
-        )
+        #expect(canvasCommands.isEmpty)
     }
 
-    @Test("Updating target-state creation routes the mutation to the root canvas")
-    func updateTargetStateCreationRoutesDefinitionMutation() throws {
+    @Test("Updating target-state creation delegates the mutation without emitting presentation commands")
+    func updateTargetStateCreationDoesNotEmitPresentationCommands() throws {
         let fixture = try makeTransitionFixture()
         let targetStateCreation = TransitionTargetStateCreation(
             assignments: [
@@ -67,57 +51,41 @@ struct TransitionInspectorStoreTests {
                 )
             ]
         )
-        var canvasEvents: [EditorCanvasStore.Event] = []
+        var canvasCommands: [EditorCanvasCommand] = []
 
         let store = makeTransitionInspectorStore(
             transitionID: fixture.transitionID,
-            sendEditorCanvasEvent: { canvasEvents.append($0) },
+            sendEditorCanvasCommand: { canvasCommands.append($0) },
             updateTargetStateCreation: { transitionID, receivedTargetStateCreation in
                 #expect(transitionID == fixture.transitionID)
                 #expect(receivedTargetStateCreation == targetStateCreation)
-                return DefinitionMutationResult(
-                    snapshot: CurrentStateMachineDefinitionSnapshot(
-                        definition: fixture.definition,
-                        revision: 3
-                    ),
-                    preferredSelection: .transition(id: fixture.transitionID)
+                return CurrentStateMachineDefinitionSnapshot(
+                    definition: fixture.definition,
+                    revision: 3
                 )
             }
         )
 
         store.send(.updateTargetStateCreation(targetStateCreation))
 
-        #expect(
-            canvasEvents == [
-                .definitionMutationWasApplied(
-                    DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: fixture.definition,
-                            revision: 3
-                        ),
-                        preferredSelection: .transition(id: fixture.transitionID)
-                    ),
-                    transitionPositionOverride: nil
-                )
-            ]
-        )
+        #expect(canvasCommands.isEmpty)
     }
 }
 
 @MainActor
 private func makeTransitionInspectorStore(
     transitionID: String,
-    sendEditorCanvasEvent: @escaping @MainActor @Sendable (EditorCanvasStore.Event) -> Void = { _ in },
-    assignSourceState: @escaping @Sendable (String, String) -> DefinitionMutationResult? = { _, _ in nil },
-    assignEvent: @escaping @Sendable (String, String) -> DefinitionMutationResult? = { _, _ in nil },
-    assignNewEvent: @escaping @Sendable (String, String, [PropertyDefinition]) -> DefinitionMutationResult? = { _, _, _ in nil },
-    assignTargetState: @escaping @Sendable (String, String) -> DefinitionMutationResult? = { _, _ in nil },
-    updateTargetStateCreation: @escaping @Sendable (String, TransitionTargetStateCreation) -> DefinitionMutationResult? = { _, _ in nil },
-    assignGuard: @escaping @Sendable (String, GuardReference) -> DefinitionMutationResult? = { _, _ in nil },
-    removeGuard: @escaping @Sendable (String) -> DefinitionMutationResult? = { _ in nil },
-    addEffect: @escaping @Sendable (String, EffectReference) -> DefinitionMutationResult? = { _, _ in nil },
-    updateEffect: @escaping @Sendable (String, Int, EffectReference) -> DefinitionMutationResult? = { _, _, _ in nil },
-    removeEffect: @escaping @Sendable (String, Int) -> DefinitionMutationResult? = { _, _ in nil }
+    sendEditorCanvasCommand: @escaping @MainActor @Sendable (EditorCanvasCommand) -> Void = { _ in },
+    assignSourceState: @escaping @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot? = { _, _ in nil },
+    assignEvent: @escaping @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot? = { _, _ in nil },
+    assignNewEvent: @escaping @Sendable (String, String, [PropertyDefinition]) -> CurrentStateMachineDefinitionSnapshot? = { _, _, _ in nil },
+    assignTargetState: @escaping @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot? = { _, _ in nil },
+    updateTargetStateCreation: @escaping @Sendable (String, TransitionTargetStateCreation) -> CurrentStateMachineDefinitionSnapshot? = { _, _ in nil },
+    assignGuard: @escaping @Sendable (String, GuardReference) -> CurrentStateMachineDefinitionSnapshot? = { _, _ in nil },
+    removeGuard: @escaping @Sendable (String) -> CurrentStateMachineDefinitionSnapshot? = { _ in nil },
+    addEffect: @escaping @Sendable (String, EffectReference) -> CurrentStateMachineDefinitionSnapshot? = { _, _ in nil },
+    updateEffect: @escaping @Sendable (String, Int, EffectReference) -> CurrentStateMachineDefinitionSnapshot? = { _, _, _ in nil },
+    removeEffect: @escaping @Sendable (String, Int) -> CurrentStateMachineDefinitionSnapshot? = { _, _ in nil }
 ) -> TransitionInspectorStore {
     TransitionInspectorStore(
         transitionID: transitionID,
@@ -138,7 +106,7 @@ private func makeTransitionInspectorStore(
         addEffect: .init(addEffect: addEffect),
         updateEffect: .init(updateEffect: updateEffect),
         removeEffect: .init(removeEffect: removeEffect),
-        sendEditorCanvasEvent: .init(send: sendEditorCanvasEvent)
+        sendEditorCanvasCommand: .init(send: sendEditorCanvasCommand)
     )
 }
 

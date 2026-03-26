@@ -11,13 +11,13 @@ struct TypeInspectorFeatureView: View {
     @Environment(\.typeInspectorStoreFactory) private var typeInspectorStoreFactory
 
     let typeID: String
-    let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     var body: some View {
         WithViewStore(
             store: typeInspectorStoreFactory.make(
                 typeID: typeID,
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         ) { store in
             content(for: store)
@@ -87,7 +87,7 @@ struct TypeInspectorFeatureView: View {
     }
 
     private func selectType(_ typeID: String) {
-        sendEditorCanvasEvent(.selectType(id: typeID))
+        sendEditorCanvasCommand(.select(.type(id: typeID)))
     }
 }
 
@@ -131,6 +131,9 @@ private struct TypeTitleEditorView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }
+        }
+        .onChange(of: type.name) { _, updatedName in
+            nameDraft = updatedName
         }
     }
 
@@ -256,6 +259,9 @@ private struct StructTypeFieldsEditorView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }
+        }
+        .onChange(of: type.kind) { _, _ in
+            resetDrafts()
         }
     }
 
@@ -436,6 +442,9 @@ private struct EnumTypeCasesEditorView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canApply)
             }
+        }
+        .onChange(of: type.kind) { _, _ in
+            resetDrafts()
         }
     }
 

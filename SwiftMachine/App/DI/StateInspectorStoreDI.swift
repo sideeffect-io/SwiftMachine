@@ -7,7 +7,7 @@
 
 extension StateInspectorStoreFactory {
     static func live(service: CurrentStateMachineDefinitionService) -> Self {
-        Self { stateID, sendEditorCanvasEvent in
+        Self { stateID, sendEditorCanvasCommand in
             StateInspectorStore(
                 stateID: stateID,
                 observeDefinition: .init(
@@ -15,20 +15,14 @@ extension StateInspectorStoreFactory {
                 ),
                 updateStateName: .init(
                     updateStateName: { stateID, name in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .state(id: stateID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.renamingState(id: stateID, to: name)
                         }
                     }
                 ),
                 updateStateProperties: .init(
                     updateStateProperties: { stateID, properties in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .state(id: stateID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.updatingProperties(
                                 properties,
                                 forStateID: stateID
@@ -36,7 +30,7 @@ extension StateInspectorStoreFactory {
                         }
                     }
                 ),
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         }
     }

@@ -7,15 +7,7 @@
 
 nonisolated func applyDefinitionUpdate(
     using service: CurrentStateMachineDefinitionService,
-    preferredSelection: StateMachineEditorSelection?,
     _ mutate: (StateMachineDefinition) -> StateMachineDefinition?
-) -> DefinitionMutationResult? {
-    guard let snapshot = service.update(mutate) else {
-        return nil
-    }
-
-    return DefinitionMutationResult(
-        snapshot: snapshot,
-        preferredSelection: preferredSelection
-    )
+) -> CurrentStateMachineDefinitionSnapshot? {
+    service.update(mutate)
 }

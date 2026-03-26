@@ -11,13 +11,13 @@ struct TransitionInspectorFeatureView: View {
     @Environment(\.transitionInspectorStoreFactory) private var transitionInspectorStoreFactory
 
     let transitionID: String
-    let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     var body: some View {
         WithViewStore(
             store: transitionInspectorStoreFactory.make(
                 transitionID: transitionID,
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         ) { store in
             content(for: store)

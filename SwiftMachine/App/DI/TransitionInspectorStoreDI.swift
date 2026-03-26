@@ -7,7 +7,7 @@
 
 extension TransitionInspectorStoreFactory {
     static func live(service: CurrentStateMachineDefinitionService) -> Self {
-        Self { transitionID, sendEditorCanvasEvent in
+        Self { transitionID, sendEditorCanvasCommand in
             TransitionInspectorStore(
                 transitionID: transitionID,
                 observeDefinition: .init(
@@ -15,10 +15,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 assignSourceState: .init(
                     assignSourceState: { transitionID, stateID in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.assigningSourceState(
                                 stateID: stateID,
                                 toTransitionID: transitionID
@@ -28,10 +25,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 assignEvent: .init(
                     assignEvent: { transitionID, eventID in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.assigningEvent(
                                 eventID: eventID,
                                 toTransitionID: transitionID
@@ -41,10 +35,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 assignNewEvent: .init(
                     assignNewEvent: { transitionID, name, properties in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.assigningNewEvent(
                                 named: name,
                                 properties: properties,
@@ -55,10 +46,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 assignTargetState: .init(
                     assignTargetState: { transitionID, stateID in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.assigningTargetState(
                                 stateID: stateID,
                                 toTransitionID: transitionID
@@ -68,10 +56,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 updateTargetStateCreation: .init(
                     updateTargetStateCreation: { transitionID, targetStateCreation in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.updatingTargetStateCreation(
                                 targetStateCreation,
                                 forTransitionID: transitionID
@@ -81,10 +66,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 assignGuard: .init(
                     assignGuard: { transitionID, guardReference in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.assigningGuard(
                                 guardReference,
                                 toTransitionID: transitionID
@@ -94,10 +76,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 removeGuard: .init(
                     removeGuard: { transitionID in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.removingGuard(
                                 fromTransitionID: transitionID
                             )
@@ -106,10 +85,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 addEffect: .init(
                     addEffect: { transitionID, effect in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.addingEffect(
                                 effect,
                                 toTransitionID: transitionID
@@ -119,10 +95,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 updateEffect: .init(
                     updateEffect: { transitionID, index, effect in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.updatingEffect(
                                 effect,
                                 at: index,
@@ -133,10 +106,7 @@ extension TransitionInspectorStoreFactory {
                 ),
                 removeEffect: .init(
                     removeEffect: { transitionID, index in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .transition(id: transitionID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.removingEffect(
                                 at: index,
                                 fromTransitionID: transitionID
@@ -144,7 +114,7 @@ extension TransitionInspectorStoreFactory {
                         }
                     }
                 ),
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         }
     }

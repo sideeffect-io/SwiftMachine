@@ -3,13 +3,13 @@ import SwiftUI
 struct TypeInspectorStoreFactory: Sendable {
     private let makeStore: @MainActor @Sendable (
         String,
-        SendEditorCanvasEventEffectExecutor
+        SendEditorCanvasCommandEffectExecutor
     ) -> TypeInspectorStore
 
     init(
         make: @escaping @MainActor @Sendable (
             String,
-            SendEditorCanvasEventEffectExecutor
+            SendEditorCanvasCommandEffectExecutor
         ) -> TypeInspectorStore
     ) {
         self.makeStore = make
@@ -18,9 +18,9 @@ struct TypeInspectorStoreFactory: Sendable {
     @MainActor
     func make(
         typeID: String,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) -> TypeInspectorStore {
-        makeStore(typeID, sendEditorCanvasEvent)
+        makeStore(typeID, sendEditorCanvasCommand)
     }
 }
 

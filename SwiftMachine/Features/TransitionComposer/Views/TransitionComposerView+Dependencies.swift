@@ -3,13 +3,13 @@ import SwiftUI
 struct TransitionComposerStoreFactory: Sendable {
     private let makeStore: @MainActor @Sendable (
         StateMachineTransitionPrompt,
-        SendEditorCanvasEventEffectExecutor
+        SendEditorCanvasCommandEffectExecutor
     ) -> TransitionComposerStore
 
     init(
         make: @escaping @MainActor @Sendable (
             StateMachineTransitionPrompt,
-            SendEditorCanvasEventEffectExecutor
+            SendEditorCanvasCommandEffectExecutor
         ) -> TransitionComposerStore
     ) {
         self.makeStore = make
@@ -18,9 +18,9 @@ struct TransitionComposerStoreFactory: Sendable {
     @MainActor
     func make(
         prompt: StateMachineTransitionPrompt,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) -> TransitionComposerStore {
-        makeStore(prompt, sendEditorCanvasEvent)
+        makeStore(prompt, sendEditorCanvasCommand)
     }
 }
 

@@ -8,20 +8,20 @@
 import Observation
 
 struct CreateEventEffectExecutor: Sendable {
-    let createEvent: @Sendable (String, [PropertyDefinition]) -> DefinitionMutationResult?
+    let createEvent: @Sendable (String, [PropertyDefinition]) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         name: String,
         properties: [PropertyDefinition]
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         createEvent(name, properties)
     }
 }
 
 struct DeleteEventEffectExecutor: Sendable {
-    let deleteEvent: @Sendable (String) -> DefinitionMutationResult?
+    let deleteEvent: @Sendable (String) -> CurrentStateMachineDefinitionSnapshot?
 
-    func callAsFunction(_ eventID: String) -> DefinitionMutationResult? {
+    func callAsFunction(_ eventID: String) -> CurrentStateMachineDefinitionSnapshot? {
         deleteEvent(eventID)
     }
 }
@@ -59,19 +59,19 @@ final class EventPaletteStore: StartableStore {
     private let observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor
     private let createEvent: CreateEventEffectExecutor
     private let deleteEvent: DeleteEventEffectExecutor
-    private let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    private let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     init(
         observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor,
         createEvent: CreateEventEffectExecutor,
         deleteEvent: DeleteEventEffectExecutor,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         state = State(snapshot: .empty)
         self.observeDefinition = observeDefinition
         self.createEvent = createEvent
         self.deleteEvent = deleteEvent
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
     }
 
     func start() {
@@ -90,28 +90,16 @@ final class EventPaletteStore: StartableStore {
                 }
 
             case .selectType(let typeID):
-                sendEditorCanvasEvent(.selectType(id: typeID))
+                sendEditorCanvasCommand(.select(.type(id: typeID)))
 
             case .selectEvent(let eventID):
-                sendEditorCanvasEvent(.selectEvent(id: eventID))
+                sendEditorCanvasCommand(.select(.event(id: eventID)))
 
             case .deleteEvent(let eventID):
-                guard let result = deleteEvent(eventID) else { continue }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: nil
-                    )
-                )
+                guard deleteEvent(eventID) != nil else { continue }
 
             case .createEvent(let name, let properties):
-                guard let result = createEvent(name: name, properties: properties) else { continue }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: nil
-                    )
-                )
+                guard createEvent(name: name, properties: properties) != nil else { continue }
             }
         }
     }

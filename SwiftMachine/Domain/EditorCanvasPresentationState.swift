@@ -8,10 +8,18 @@
 import Foundation
 
 struct EditorCanvasPresentationState: Sendable, Equatable {
-    let document: StateMachineEditorDocument
+    let definition: StateMachineDefinition
+    let layout: StateMachineEditorLayout
     let selection: StateMachineEditorSelection?
     let connectionDraft: StateMachineConnectionDraft?
     let transitionPrompt: StateMachineTransitionPrompt?
+
+    var document: StateMachineEditorDocument {
+        StateMachineEditorDocument(
+            definition: definition,
+            layout: layout
+        )
+    }
 
     init(
         definition: StateMachineDefinition,
@@ -20,11 +28,8 @@ struct EditorCanvasPresentationState: Sendable, Equatable {
         connectionDraft: StateMachineConnectionDraft? = nil,
         transitionPrompt: StateMachineTransitionPrompt? = nil
     ) {
-        self.document = StateMachineEditorDocument(
-            definition: definition,
-            statePositions: layout.statePositions,
-            transitionPositions: layout.transitionPositions
-        )
+        self.definition = definition
+        self.layout = layout
         self.selection = selection
         self.connectionDraft = connectionDraft
         self.transitionPrompt = transitionPrompt

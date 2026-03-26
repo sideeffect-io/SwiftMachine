@@ -29,8 +29,8 @@ struct EditorCanvasStoreTests {
         #expect(store.state.phase == .wizard)
     }
 
-    @Test("Applying a definition mutation enters editing mode and honors the preferred selection")
-    func definitionMutationReconcilesSelection() throws {
+    @Test("Selecting when available applies on the next snapshot refresh")
+    func stagedSelectionReconcilesOnSnapshotRefresh() throws {
         let definition = try makeCanvasDefinition()
         let addedStateResult = try #require(
             definition.addingState(named: "Review", properties: [])
@@ -46,22 +46,48 @@ struct EditorCanvasStoreTests {
             )
         )
 
+        store.apply(.selectWhenAvailable(.state(id: addedStateResult.stateID)))
         store.send(
-            .definitionMutationWasApplied(
-                DefinitionMutationResult(
-                    snapshot: CurrentStateMachineDefinitionSnapshot(
-                        definition: addedStateResult.definition,
-                        revision: 1
-                    ),
-                    preferredSelection: .state(id: addedStateResult.stateID)
-                ),
-                transitionPositionOverride: nil
+            .snapshotDidChange(
+                CurrentStateMachineDefinitionSnapshot(
+                    definition: addedStateResult.definition,
+                    revision: 1
+                )
             )
         )
 
         #expect(store.state.phase == .editing)
         #expect(store.selectedStateID == addedStateResult.stateID)
         #expect(store.state.snapshot.revision == 1)
+    }
+
+    @Test("Selecting when available applies immediately when the entity already exists")
+    func selectWhenAvailableAppliesImmediatelyWhenPresent() throws {
+        let definition = try makeTwoStateCanvasDefinition()
+        let selectedStateID = try #require(definition.states.last?.id)
+
+        let store = EditorCanvasStore(
+            observeDefinition: .init(
+                observeDefinition: {
+                    AsyncStream { continuation in
+                        continuation.finish()
+                    }
+                }
+            )
+        )
+
+        store.send(
+            .snapshotDidChange(
+                CurrentStateMachineDefinitionSnapshot(
+                    definition: definition,
+                    revision: 1
+                )
+            )
+        )
+
+        store.apply(.selectWhenAvailable(.state(id: selectedStateID)))
+
+        #expect(store.selectedStateID == selectedStateID)
     }
 
     @Test("Connection drag completion creates a transition prompt")

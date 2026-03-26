@@ -8,22 +8,41 @@
 import Foundation
 
 struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
-    static let stateNodeSize = StateMachineEditorSize(width: 220, height: 120)
-    static let initialStateOrigin = StateMachineEditorPoint(x: 360, y: 240)
-    static let stateOriginOffset = StateMachineEditorPoint(x: 180, y: 120)
+    static let stateNodeSize = StateMachineEditorLayout.stateNodeSize
+    static let initialStateOrigin = StateMachineEditorLayout.initialStateOrigin
+    static let stateOriginOffset = StateMachineEditorLayout.stateOriginOffset
 
     let definition: StateMachineDefinition
-    let statePositions: [String: StateMachineEditorPoint]
-    let transitionPositions: [String: StateMachineEditorPoint]
+    let layout: StateMachineEditorLayout
+
+    var statePositions: [String: StateMachineEditorPoint] {
+        layout.statePositions
+    }
+
+    var transitionPositions: [String: StateMachineEditorPoint] {
+        layout.transitionPositions
+    }
+
+    init(
+        definition: StateMachineDefinition,
+        layout: StateMachineEditorLayout
+    ) {
+        self.definition = definition
+        self.layout = layout
+    }
 
     init(
         definition: StateMachineDefinition,
         statePositions: [String: StateMachineEditorPoint],
         transitionPositions: [String: StateMachineEditorPoint] = [:]
     ) {
-        self.definition = definition
-        self.statePositions = statePositions
-        self.transitionPositions = transitionPositions
+        self.init(
+            definition: definition,
+            layout: StateMachineEditorLayout(
+                statePositions: statePositions,
+                transitionPositions: transitionPositions
+            )
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -35,8 +54,8 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        definition = try container.decode(StateMachineDefinition.self, forKey: .definition)
-        statePositions = try container.decode(
+        let definition = try container.decode(StateMachineDefinition.self, forKey: .definition)
+        let statePositions = try container.decode(
             [String: StateMachineEditorPoint].self,
             forKey: .statePositions
         )
@@ -45,15 +64,24 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             [String: StateMachineEditorPoint].self,
             forKey: .transitionPositions
         ) {
-            transitionPositions = storedTransitionPositions
+            self.init(
+                definition: definition,
+                statePositions: statePositions,
+                transitionPositions: storedTransitionPositions
+            )
         } else {
             let legacyEventPositions = try container.decodeIfPresent(
                 [String: StateMachineEditorPoint].self,
                 forKey: .eventPositions
             ) ?? [:]
-            transitionPositions = Self.transitionPositions(
-                migratingLegacyEventPositions: legacyEventPositions,
-                for: definition
+
+            self.init(
+                definition: definition,
+                statePositions: statePositions,
+                transitionPositions: StateMachineEditorLayout.transitionPositions(
+                    migratingLegacyEventPositions: legacyEventPositions,
+                    for: definition
+                )
             )
         }
     }
@@ -66,55 +94,26 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
     }
 
     static func bootstrap(definition: StateMachineDefinition) -> StateMachineEditorDocument {
-        let orderedStates = definition.states.sorted { lhs, rhs in
-            if lhs.id == definition.initialStateID {
-                return true
-            }
-
-            if rhs.id == definition.initialStateID {
-                return false
-            }
-
-            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-        }
-
-        let positions = Dictionary(
-            uniqueKeysWithValues: orderedStates.enumerated().map { index, state in
-                let offsetX = stateOriginOffset.x * Double(index)
-                let offsetY = stateOriginOffset.y * Double(index)
-                return (
-                    state.id,
-                    initialStateOrigin.translatingBy(dx: offsetX, dy: offsetY)
-                )
-            }
-        )
-
-        return StateMachineEditorDocument(
+        StateMachineEditorDocument(
             definition: definition,
-            statePositions: positions
+            layout: .bootstrap(for: definition)
         )
     }
 
     func position(for stateID: String) -> StateMachineEditorPoint {
-        statePositions[stateID] ?? Self.initialStateOrigin
+        layout.position(for: stateID)
     }
 
     func transitionPosition(for transitionID: String) -> StateMachineEditorPoint? {
-        transitionPositions[transitionID]
+        layout.transitionPosition(for: transitionID)
     }
 
     func frame(for stateID: String) -> StateMachineEditorRect {
-        StateMachineEditorRect(
-            origin: position(for: stateID),
-            size: Self.stateNodeSize
-        )
+        layout.frame(for: stateID)
     }
 
     func stateID(at point: StateMachineEditorPoint) -> String? {
-        definition.states
-            .reversed()
-            .first { frame(for: $0.id).contains(point) }?
-            .id
+        layout.stateID(at: point, in: definition)
     }
 
     func suggestedStateName() -> String {
@@ -151,22 +150,8 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return nil
         }
 
-        let positionIndex = Double(result.definition.states.count - 1)
-        let initialOrigin = position(for: result.definition.initialStateID)
-        let newPosition = initialOrigin.translatingBy(
-            dx: Self.stateOriginOffset.x * positionIndex,
-            dy: Self.stateOriginOffset.y * positionIndex
-        )
-
-        var updatedPositions = statePositions
-        updatedPositions[result.stateID] = newPosition
-
         return (
-            document: StateMachineEditorDocument(
-                definition: result.definition,
-                statePositions: updatedPositions,
-                transitionPositions: transitionPositions
-            ),
+            document: preservingLayout(with: result.definition),
             stateID: result.stateID
         )
     }
@@ -343,13 +328,9 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return self
         }
 
-        var updatedPositions = statePositions
-        updatedPositions[stateID] = position
-
         return StateMachineEditorDocument(
             definition: definition,
-            statePositions: updatedPositions,
-            transitionPositions: transitionPositions
+            layout: layout.movingState(id: stateID, to: position)
         )
     }
 
@@ -361,13 +342,9 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
             return self
         }
 
-        var updatedPositions = transitionPositions
-        updatedPositions[transitionID] = position
-
         return StateMachineEditorDocument(
             definition: definition,
-            statePositions: statePositions,
-            transitionPositions: updatedPositions
+            layout: layout.movingTransition(id: transitionID, to: position)
         )
     }
 
@@ -583,43 +560,13 @@ struct StateMachineEditorDocument: Sendable, Codable, Equatable, Hashable {
         with updatedDefinition: StateMachineDefinition,
         transitionPositionOverrides: [String: StateMachineEditorPoint] = [:]
     ) -> StateMachineEditorDocument {
-        let validStateIDs = Set(updatedDefinition.states.map(\.id))
-        let validTransitionIDs = Set(updatedDefinition.transitions.map(\.id))
-        let updatedStatePositions = statePositions.filter { validStateIDs.contains($0.key) }
-        var updatedTransitionPositions = transitionPositions.filter { validTransitionIDs.contains($0.key) }
-
-        for (transitionID, position) in transitionPositionOverrides where validTransitionIDs.contains(transitionID) {
-            updatedTransitionPositions[transitionID] = position
-        }
-
-        return StateMachineEditorDocument(
+        StateMachineEditorDocument(
             definition: updatedDefinition,
-            statePositions: updatedStatePositions,
-            transitionPositions: updatedTransitionPositions
-        )
-    }
-
-    private static func transitionPositions(
-        migratingLegacyEventPositions legacyEventPositions: [String: StateMachineEditorPoint],
-        for definition: StateMachineDefinition
-    ) -> [String: StateMachineEditorPoint] {
-        let halfLegacyWidth = 110.0
-        let halfLegacyHeight = 48.0
-
-        return Dictionary(
-            uniqueKeysWithValues: definition.transitions.compactMap { transition in
-                guard let legacyOrigin = legacyEventPositions[transition.eventID] else {
-                    return nil
-                }
-
-                return (
-                    transition.id,
-                    legacyOrigin.translatingBy(
-                        dx: halfLegacyWidth,
-                        dy: halfLegacyHeight
-                    )
-                )
-            }
+            layout: layout.reconciled(
+                from: definition,
+                to: updatedDefinition,
+                transitionPositionOverrides: transitionPositionOverrides
+            )
         )
     }
 }

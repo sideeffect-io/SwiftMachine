@@ -36,12 +36,9 @@ struct SwiftMachineWizardStoreTests {
             createInitialDefinition: .init(
                 createInitialDefinition: { machineName, initialStateName, properties, types in
                     capturedInvocation = (machineName, initialStateName, properties, types)
-                    return DefinitionMutationResult(
-                        snapshot: CurrentStateMachineDefinitionSnapshot(
-                            definition: createdDefinition,
-                            revision: 1
-                        ),
-                        preferredSelection: nil
+                    return CurrentStateMachineDefinitionSnapshot(
+                        definition: createdDefinition,
+                        revision: 1
                     )
                 }
             )

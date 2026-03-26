@@ -20,11 +20,7 @@ extension SwiftMachineWizardStoreFactory {
                             return nil
                         }
 
-                        let snapshot = service.replace(with: definition)
-                        return DefinitionMutationResult(
-                            snapshot: snapshot,
-                            preferredSelection: nil
-                        )
+                        return service.replace(with: definition)
                     }
                 )
             )

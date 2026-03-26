@@ -15,11 +15,6 @@ struct CurrentStateMachineDefinitionSnapshot: Sendable, Equatable {
     static let empty = CurrentStateMachineDefinitionSnapshot(definition: nil, revision: 0)
 }
 
-struct DefinitionMutationResult: Sendable, Equatable {
-    let snapshot: CurrentStateMachineDefinitionSnapshot
-    let preferredSelection: StateMachineEditorSelection?
-}
-
 final class CurrentStateMachineDefinitionService: Sendable {
     private final class StorageBox: Sendable {
         let mutex: Mutex<Storage>

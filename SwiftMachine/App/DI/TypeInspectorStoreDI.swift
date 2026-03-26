@@ -7,7 +7,7 @@
 
 extension TypeInspectorStoreFactory {
     static func live(service: CurrentStateMachineDefinitionService) -> Self {
-        Self { typeID, sendEditorCanvasEvent in
+        Self { typeID, sendEditorCanvasCommand in
             TypeInspectorStore(
                 typeID: typeID,
                 observeDefinition: .init(
@@ -15,25 +15,19 @@ extension TypeInspectorStoreFactory {
                 ),
                 updateTypeName: .init(
                     updateTypeName: { typeID, name in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .type(id: typeID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.renamingType(id: typeID, to: name)
                         }
                     }
                 ),
                 updateType: .init(
                     updateType: { typeID, type in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: .type(id: typeID)
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.updatingType(type, forTypeID: typeID)
                         }
                     }
                 ),
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         }
     }

@@ -14,14 +14,14 @@ struct CreateInitialDefinitionEffectExecutor: Sendable {
         String,
         [PropertyDefinition],
         [PayloadTypeDefinition]
-    ) -> DefinitionMutationResult?
+    ) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         machineName: String,
         initialStateName: String,
         properties: [PropertyDefinition],
         types: [PayloadTypeDefinition]
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         createInitialDefinition(machineName, initialStateName, properties, types)
     }
 }

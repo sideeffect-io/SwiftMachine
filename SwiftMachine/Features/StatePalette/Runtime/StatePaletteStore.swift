@@ -8,20 +8,20 @@
 import Observation
 
 struct CreateStateEffectExecutor: Sendable {
-    let createState: @Sendable (String, [PropertyDefinition]) -> DefinitionMutationResult?
+    let createState: @Sendable (String, [PropertyDefinition]) -> String?
 
     func callAsFunction(
         name: String,
         properties: [PropertyDefinition]
-    ) -> DefinitionMutationResult? {
+    ) -> String? {
         createState(name, properties)
     }
 }
 
 struct DeleteStateEffectExecutor: Sendable {
-    let deleteState: @Sendable (String) -> DefinitionMutationResult?
+    let deleteState: @Sendable (String) -> CurrentStateMachineDefinitionSnapshot?
 
-    func callAsFunction(_ stateID: String) -> DefinitionMutationResult? {
+    func callAsFunction(_ stateID: String) -> CurrentStateMachineDefinitionSnapshot? {
         deleteState(stateID)
     }
 }
@@ -59,19 +59,19 @@ final class StatePaletteStore: StartableStore {
     private let observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor
     private let createState: CreateStateEffectExecutor
     private let deleteState: DeleteStateEffectExecutor
-    private let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    private let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     init(
         observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor,
         createState: CreateStateEffectExecutor,
         deleteState: DeleteStateEffectExecutor,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         state = State(snapshot: .empty)
         self.observeDefinition = observeDefinition
         self.createState = createState
         self.deleteState = deleteState
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
     }
 
     func start() {
@@ -90,28 +90,17 @@ final class StatePaletteStore: StartableStore {
                 }
 
             case .selectType(let typeID):
-                sendEditorCanvasEvent(.selectType(id: typeID))
+                sendEditorCanvasCommand(.select(.type(id: typeID)))
 
             case .selectState(let stateID):
-                sendEditorCanvasEvent(.selectState(id: stateID))
+                sendEditorCanvasCommand(.select(.state(id: stateID)))
 
             case .deleteState(let stateID):
-                guard let result = deleteState(stateID) else { continue }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: nil
-                    )
-                )
+                guard deleteState(stateID) != nil else { continue }
 
             case .createState(let name, let properties):
-                guard let result = createState(name: name, properties: properties) else { continue }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: nil
-                    )
-                )
+                guard let stateID = createState(name: name, properties: properties) else { continue }
+                sendEditorCanvasCommand(.selectWhenAvailable(.state(id: stateID)))
             }
         }
     }

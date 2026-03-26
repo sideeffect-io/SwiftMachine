@@ -15,7 +15,7 @@ struct TransitionComposerView: View {
     let sourceState: StateDefinition?
     let targetState: StateDefinition?
     let availableModelTypes: [PayloadTypeDefinition]
-    let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     @State private var mode: TransitionPromptMode = .createNew
     @State private var selectedEventID = ""
@@ -30,14 +30,14 @@ struct TransitionComposerView: View {
         sourceState: StateDefinition?,
         targetState: StateDefinition?,
         availableModelTypes: [PayloadTypeDefinition],
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         self.prompt = prompt
         self.events = events
         self.sourceState = sourceState
         self.targetState = targetState
         self.availableModelTypes = availableModelTypes
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
         _targetStateCreationDraft = State(
             initialValue: TransitionTargetStateCreationDraft(
                 existingCreation: .init(),
@@ -53,7 +53,7 @@ struct TransitionComposerView: View {
         WithViewStore(
             store: transitionComposerStoreFactory.make(
                 prompt: prompt,
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         ) { store in
             content(for: store)

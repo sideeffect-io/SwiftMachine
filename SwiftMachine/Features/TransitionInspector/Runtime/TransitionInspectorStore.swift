@@ -8,110 +8,110 @@
 import Observation
 
 struct AssignTransitionSourceStateEffectExecutor: Sendable {
-    let assignSourceState: @Sendable (String, String) -> DefinitionMutationResult?
+    let assignSourceState: @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         stateID: String
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         assignSourceState(transitionID, stateID)
     }
 }
 
 struct AssignTransitionEventEffectExecutor: Sendable {
-    let assignEvent: @Sendable (String, String) -> DefinitionMutationResult?
+    let assignEvent: @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         eventID: String
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         assignEvent(transitionID, eventID)
     }
 }
 
 struct AssignNewTransitionEventEffectExecutor: Sendable {
-    let assignNewEvent: @Sendable (String, String, [PropertyDefinition]) -> DefinitionMutationResult?
+    let assignNewEvent: @Sendable (String, String, [PropertyDefinition]) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         name: String,
         properties: [PropertyDefinition]
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         assignNewEvent(transitionID, name, properties)
     }
 }
 
 struct AssignTransitionTargetStateEffectExecutor: Sendable {
-    let assignTargetState: @Sendable (String, String) -> DefinitionMutationResult?
+    let assignTargetState: @Sendable (String, String) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         stateID: String
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         assignTargetState(transitionID, stateID)
     }
 }
 
 struct UpdateTransitionTargetStateCreationEffectExecutor: Sendable {
-    let updateTargetStateCreation: @Sendable (String, TransitionTargetStateCreation) -> DefinitionMutationResult?
+    let updateTargetStateCreation: @Sendable (String, TransitionTargetStateCreation) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         targetStateCreation: TransitionTargetStateCreation
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         updateTargetStateCreation(transitionID, targetStateCreation)
     }
 }
 
 struct AssignTransitionGuardEffectExecutor: Sendable {
-    let assignGuard: @Sendable (String, GuardReference) -> DefinitionMutationResult?
+    let assignGuard: @Sendable (String, GuardReference) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         guardReference: GuardReference
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         assignGuard(transitionID, guardReference)
     }
 }
 
 struct RemoveTransitionGuardEffectExecutor: Sendable {
-    let removeGuard: @Sendable (String) -> DefinitionMutationResult?
+    let removeGuard: @Sendable (String) -> CurrentStateMachineDefinitionSnapshot?
 
-    func callAsFunction(transitionID: String) -> DefinitionMutationResult? {
+    func callAsFunction(transitionID: String) -> CurrentStateMachineDefinitionSnapshot? {
         removeGuard(transitionID)
     }
 }
 
 struct AddTransitionEffectEffectExecutor: Sendable {
-    let addEffect: @Sendable (String, EffectReference) -> DefinitionMutationResult?
+    let addEffect: @Sendable (String, EffectReference) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         effect: EffectReference
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         addEffect(transitionID, effect)
     }
 }
 
 struct UpdateTransitionEffectAtIndexEffectExecutor: Sendable {
-    let updateEffect: @Sendable (String, Int, EffectReference) -> DefinitionMutationResult?
+    let updateEffect: @Sendable (String, Int, EffectReference) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         index: Int,
         effect: EffectReference
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         updateEffect(transitionID, index, effect)
     }
 }
 
 struct RemoveTransitionEffectAtIndexEffectExecutor: Sendable {
-    let removeEffect: @Sendable (String, Int) -> DefinitionMutationResult?
+    let removeEffect: @Sendable (String, Int) -> CurrentStateMachineDefinitionSnapshot?
 
     func callAsFunction(
         transitionID: String,
         index: Int
-    ) -> DefinitionMutationResult? {
+    ) -> CurrentStateMachineDefinitionSnapshot? {
         removeEffect(transitionID, index)
     }
 }
@@ -169,7 +169,7 @@ final class TransitionInspectorStore: StartableStore {
     private let addEffect: AddTransitionEffectEffectExecutor
     private let updateEffect: UpdateTransitionEffectAtIndexEffectExecutor
     private let removeEffect: RemoveTransitionEffectAtIndexEffectExecutor
-    private let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    private let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     init(
         transitionID: String,
@@ -184,7 +184,7 @@ final class TransitionInspectorStore: StartableStore {
         addEffect: AddTransitionEffectEffectExecutor,
         updateEffect: UpdateTransitionEffectAtIndexEffectExecutor,
         removeEffect: RemoveTransitionEffectAtIndexEffectExecutor,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         state = State(snapshot: .empty, transitionID: transitionID)
         self.observeDefinition = observeDefinition
@@ -198,7 +198,7 @@ final class TransitionInspectorStore: StartableStore {
         self.addEffect = addEffect
         self.updateEffect = updateEffect
         self.removeEffect = removeEffect
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
     }
 
     func start() {
@@ -217,76 +217,66 @@ final class TransitionInspectorStore: StartableStore {
                 }
 
             case .assignSourceState(let stateID):
-                guard let result = assignSourceState(
+                guard assignSourceState(
                     transitionID: state.transitionID,
                     stateID: stateID
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .assignEvent(let eventID):
-                guard let result = assignEvent(
+                guard assignEvent(
                     transitionID: state.transitionID,
                     eventID: eventID
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .assignNewEvent(let name, let properties):
-                guard let result = assignNewEvent(
+                guard assignNewEvent(
                     transitionID: state.transitionID,
                     name: name,
                     properties: properties
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .assignTargetState(let stateID):
-                guard let result = assignTargetState(
+                guard assignTargetState(
                     transitionID: state.transitionID,
                     stateID: stateID
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .updateTargetStateCreation(let targetStateCreation):
-                guard let result = updateTargetStateCreation(
+                guard updateTargetStateCreation(
                     transitionID: state.transitionID,
                     targetStateCreation: targetStateCreation
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .assignGuard(let guardReference):
-                guard let result = assignGuard(
+                guard assignGuard(
                     transitionID: state.transitionID,
                     guardReference: guardReference
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .removeGuard:
-                guard let result = removeGuard(transitionID: state.transitionID) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                guard removeGuard(transitionID: state.transitionID) != nil else { continue }
 
             case .addEffect(let effect):
-                guard let result = addEffect(
+                guard addEffect(
                     transitionID: state.transitionID,
                     effect: effect
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .updateEffect(let index, let effect):
-                guard let result = updateEffect(
+                guard updateEffect(
                     transitionID: state.transitionID,
                     index: index,
                     effect: effect
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .removeEffect(let index):
-                guard let result = removeEffect(
+                guard removeEffect(
                     transitionID: state.transitionID,
                     index: index
-                ) else { continue }
-                sendEditorCanvasEvent(.definitionMutationWasApplied(result, transitionPositionOverride: nil))
+                ) != nil else { continue }
 
             case .selectType(let typeID):
-                sendEditorCanvasEvent(.selectType(id: typeID))
+                sendEditorCanvasCommand(.select(.type(id: typeID)))
             }
         }
     }

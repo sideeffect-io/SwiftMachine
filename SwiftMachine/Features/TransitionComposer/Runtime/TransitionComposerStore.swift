@@ -13,14 +13,14 @@ struct CreateTransitionWithExistingEventEffectExecutor: Sendable {
         String,
         [PropertyDefinition],
         TransitionTargetStateCreation
-    ) -> DefinitionMutationResult?
+    ) -> String?
 
     func callAsFunction(
         prompt: StateMachineTransitionPrompt,
         eventID: String,
         properties: [PropertyDefinition],
         targetStateCreation: TransitionTargetStateCreation
-    ) -> DefinitionMutationResult? {
+    ) -> String? {
         createTransition(prompt, eventID, properties, targetStateCreation)
     }
 }
@@ -31,14 +31,14 @@ struct CreateTransitionWithNewEventEffectExecutor: Sendable {
         String,
         [PropertyDefinition],
         TransitionTargetStateCreation
-    ) -> DefinitionMutationResult?
+    ) -> String?
 
     func callAsFunction(
         prompt: StateMachineTransitionPrompt,
         name: String,
         properties: [PropertyDefinition],
         targetStateCreation: TransitionTargetStateCreation
-    ) -> DefinitionMutationResult? {
+    ) -> String? {
         createTransition(prompt, name, properties, targetStateCreation)
     }
 }
@@ -90,20 +90,20 @@ final class TransitionComposerStore: StartableStore {
     private let observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor
     private let createWithExistingEvent: CreateTransitionWithExistingEventEffectExecutor
     private let createWithNewEvent: CreateTransitionWithNewEventEffectExecutor
-    private let sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+    private let sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
 
     init(
         prompt: StateMachineTransitionPrompt,
         observeDefinition: ObserveCurrentStateMachineDefinitionEffectExecutor,
         createWithExistingEvent: CreateTransitionWithExistingEventEffectExecutor,
         createWithNewEvent: CreateTransitionWithNewEventEffectExecutor,
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) {
         state = State(snapshot: .empty, prompt: prompt)
         self.observeDefinition = observeDefinition
         self.createWithExistingEvent = createWithExistingEvent
         self.createWithNewEvent = createWithNewEvent
-        self.sendEditorCanvasEvent = sendEditorCanvasEvent
+        self.sendEditorCanvasCommand = sendEditorCanvasCommand
     }
 
     func start() {
@@ -122,10 +122,10 @@ final class TransitionComposerStore: StartableStore {
                 }
 
             case .dismissPrompt:
-                sendEditorCanvasEvent(.dismissTransitionPrompt)
+                sendEditorCanvasCommand(.dismissTransitionPrompt)
 
             case .createWithExistingEvent(let eventID, let properties, let targetStateCreation):
-                guard let result = createWithExistingEvent(
+                guard let transitionID = createWithExistingEvent(
                     prompt: state.prompt,
                     eventID: eventID,
                     properties: properties,
@@ -133,16 +133,17 @@ final class TransitionComposerStore: StartableStore {
                 ) else {
                     continue
                 }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: state.prompt.anchor
+                sendEditorCanvasCommand(.selectWhenAvailable(.transition(id: transitionID)))
+                sendEditorCanvasCommand(
+                    .positionTransitionWhenAvailable(
+                        id: transitionID,
+                        position: state.prompt.anchor
                     )
                 )
-                sendEditorCanvasEvent(.dismissTransitionPrompt)
+                sendEditorCanvasCommand(.dismissTransitionPrompt)
 
             case .createWithNewEvent(let name, let properties, let targetStateCreation):
-                guard let result = createWithNewEvent(
+                guard let transitionID = createWithNewEvent(
                     prompt: state.prompt,
                     name: name,
                     properties: properties,
@@ -150,16 +151,17 @@ final class TransitionComposerStore: StartableStore {
                 ) else {
                     continue
                 }
-                sendEditorCanvasEvent(
-                    .definitionMutationWasApplied(
-                        result,
-                        transitionPositionOverride: state.prompt.anchor
+                sendEditorCanvasCommand(.selectWhenAvailable(.transition(id: transitionID)))
+                sendEditorCanvasCommand(
+                    .positionTransitionWhenAvailable(
+                        id: transitionID,
+                        position: state.prompt.anchor
                     )
                 )
-                sendEditorCanvasEvent(.dismissTransitionPrompt)
+                sendEditorCanvasCommand(.dismissTransitionPrompt)
 
             case .selectType(let typeID):
-                sendEditorCanvasEvent(.selectType(id: typeID))
+                sendEditorCanvasCommand(.select(.type(id: typeID)))
             }
         }
     }

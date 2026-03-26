@@ -7,7 +7,7 @@
 
 extension StatePaletteStoreFactory {
     static func live(service: CurrentStateMachineDefinitionService) -> Self {
-        Self { sendEditorCanvasEvent in
+        Self { sendEditorCanvasCommand in
             StatePaletteStore(
                 observeDefinition: .init(
                     observeDefinition: { service.observe() }
@@ -15,32 +15,26 @@ extension StatePaletteStoreFactory {
                 createState: .init(
                     createState: { name, properties in
                         var createdStateID: String?
-                        guard let snapshot = service.update({ definition in
+                        guard service.update({ definition in
                             let result = definition.addingState(named: name, properties: properties)
                             createdStateID = result?.stateID
                             return result?.definition
-                        }),
+                        }) != nil,
                         let createdStateID else {
                             return nil
                         }
 
-                        return DefinitionMutationResult(
-                            snapshot: snapshot,
-                            preferredSelection: .state(id: createdStateID)
-                        )
+                        return createdStateID
                     }
                 ),
                 deleteState: .init(
                     deleteState: { stateID in
-                        applyDefinitionUpdate(
-                            using: service,
-                            preferredSelection: nil
-                        ) { definition in
+                        applyDefinitionUpdate(using: service) { definition in
                             definition.removingState(id: stateID)
                         }
                     }
                 ),
-                sendEditorCanvasEvent: sendEditorCanvasEvent
+                sendEditorCanvasCommand: sendEditorCanvasCommand
             )
         }
     }

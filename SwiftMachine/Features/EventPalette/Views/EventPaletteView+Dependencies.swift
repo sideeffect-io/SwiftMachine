@@ -2,12 +2,12 @@ import SwiftUI
 
 struct EventPaletteStoreFactory: Sendable {
     private let makeStore: @MainActor @Sendable (
-        SendEditorCanvasEventEffectExecutor
+        SendEditorCanvasCommandEffectExecutor
     ) -> EventPaletteStore
 
     init(
         make: @escaping @MainActor @Sendable (
-            SendEditorCanvasEventEffectExecutor
+            SendEditorCanvasCommandEffectExecutor
         ) -> EventPaletteStore
     ) {
         self.makeStore = make
@@ -15,9 +15,9 @@ struct EventPaletteStoreFactory: Sendable {
 
     @MainActor
     func make(
-        sendEditorCanvasEvent: SendEditorCanvasEventEffectExecutor
+        sendEditorCanvasCommand: SendEditorCanvasCommandEffectExecutor
     ) -> EventPaletteStore {
-        makeStore(sendEditorCanvasEvent)
+        makeStore(sendEditorCanvasCommand)
     }
 }
 
